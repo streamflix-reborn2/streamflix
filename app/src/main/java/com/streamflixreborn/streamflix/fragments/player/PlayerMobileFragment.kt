@@ -441,6 +441,9 @@ class PlayerMobileFragment : Fragment() {
                                 .build()
                         )
                         UserPreferences.subtitleName = (state.subtitle.languageName ?: fileName).substringBefore(" ")
+                        state.subtitle.languageName?.let { lang ->
+                            UserPreferences.preferredSubtitleLanguage = lang
+                        }
                         player.seekTo(currentPosition)
                         player.play()
                     }
@@ -481,6 +484,10 @@ class PlayerMobileFragment : Fragment() {
                                 .build()
                         )
                         UserPreferences.subtitleName = (state.subtitle.releaseName ?: state.subtitle.name ?: fileName).substringBefore(" ")
+                        val subDLLang = state.subtitle.lang ?: state.subtitle.language
+                        if (subDLLang != null) {
+                            UserPreferences.preferredSubtitleLanguage = subDLLang
+                        }
                         player.seekTo(currentPosition)
                         player.play()
                     }
@@ -1030,6 +1037,48 @@ class PlayerMobileFragment : Fragment() {
             }
         }
         player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                super.onPlaybackStateChanged(playbackState)
+
+                if (playbackState == Player.STATE_READY) {
+                    val preferredSubLang = UserPreferences.preferredSubtitleLanguage
+                    if (!preferredSubLang.isNullOrEmpty()) {
+                        val trackGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                        for (group in trackGroups) {
+                            for (i in 0 until group.length) {
+                                val format = group.getTrackFormat(i)
+                                if (format.language.equals(preferredSubLang, ignoreCase = true)) {
+                                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                        .setOverrideForType(
+                                            androidx.media3.common.TrackSelectionOverride(
+                                                group.mediaTrackGroup,
+                                                i
+                                            )
+                                        )
+                                        .build()
+                                    return
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                super.onTracksChanged(tracks)
+                val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                for (group in textGroups) {
+                    for (i in 0 until group.length) {
+                        if (group.isTrackSelected(i)) {
+                            val lang = group.getTrackFormat(i).language
+                            if (!lang.isNullOrBlank() && lang != "und" && UserPreferences.preferredSubtitleLanguage != lang) {
+                                UserPreferences.preferredSubtitleLanguage = lang
+                            }
+                        }
+                    }
+                }
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 super.onIsPlayingChanged(isPlaying)
                 binding.pvPlayer.keepScreenOn = isPlaying || UserPreferences.keepScreenOnWhenPaused
