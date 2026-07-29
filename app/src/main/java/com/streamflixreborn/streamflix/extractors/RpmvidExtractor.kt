@@ -83,10 +83,11 @@ class RpmvidExtractor : Extractor() {
 
         val decryptedJson = decryptHexPayload(hexResponse)
         val json = JsonParser.parseString(decryptedJson).asJsonObject
-        val hlsPath = json.get("hls")?.asString?.takeIf { it.isNotEmpty() }
-        val hlsTiktok = json.get("hlsVideoTiktok")?.asString?.takeIf { it.isNotEmpty() }
-        var cfPath = json.get("cf")?.asString?.takeIf { it.isNotEmpty() }
-        val cfExpire = json.get("cfExpire")?.asString?.takeIf { it.isNotEmpty() }
+        val hlsPath = json.get("hls")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }
+        val hlsTiktok = json.get("hlsVideoTiktok")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }
+        val sourcePath = json.get("source")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }
+        var cfPath = json.get("cf")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }
+        val cfExpire = json.get("cfExpire")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() }
 
         val (finalUrl, headers) = when {
             !hlsPath.isNullOrEmpty() -> {
@@ -94,67 +95,45 @@ class RpmvidExtractor : Extractor() {
             }
             !hlsTiktok.isNullOrEmpty() -> {
                 var v = ""
+                var domain = ""
                 try {
                     val configStr = json.get("streamingConfig")?.asString
                     if (!configStr.isNullOrEmpty()) {
                         val config = JsonParser.parseString(configStr).asJsonObject
-                        v = config.getAsJsonObject("adjust")
-                            ?.getAsJsonObject("Tiktok")
-                            ?.getAsJsonObject("params")
-                            ?.get("v")?.asString ?: ""
+                        val tiktok = config.getAsJsonObject("adjust")?.getAsJsonObject("Tiktok")
+                        v = tiktok?.getAsJsonObject("params")?.get("v")?.asString ?: ""
+                        domain = tiktok?.get("domain")?.asString ?: ""
                     }
                 } catch (e: Exception) { }
+                val tiktokPath = if (domain.isNotEmpty() && hlsTiktok.startsWith("/hls/")) {
+                    hlsTiktok.replaceFirst("/hls/", "/hlsmod/$domain/")
+                } else hlsTiktok
                 val query = if (v.isNotEmpty()) "?v=$v" else ""
-                "$mainLink$hlsTiktok$query" to mapOf("Referer" to mainLink)
+                "$mainLink$tiktokPath$query" to mapOf("Referer" to mainLink)
             }
-            !cfPath.isNullOrEmpty() -> {
 
-                var t: String? = null
-                var e: String? = null
-                val configStr = json.get("streamingConfig")?.asString
+            !cfPath.isNullOrEmpty() && !cfPath!!.contains("skyforgeconcepts.shop") -> {
 
-                try {
-                    if (configStr != null) {
-                        val streamingConfig = JsonParser.parseString(configStr).asJsonObject
+                val pk = json.getAsJsonObject("pk")
+                val k = pk?.get("k")?.takeIf { !it.isJsonNull }?.asString
+                val kx = pk?.get("kx")?.takeIf { !it.isJsonNull }?.asString
 
-                        val cloudflare = streamingConfig
-                            .getAsJsonObject("adjust")
-                            ?.getAsJsonObject("Cloudflare")
-
-                        val disabled = cloudflare
-                            ?.get("disabled")
-                            ?.takeIf { !it.isJsonNull }
-                            ?.asBoolean ?: true
-
-                        if (!disabled) {
-                            val params = cloudflare.getAsJsonObject("params")
-
-                            t = params
-                                ?.get("t")
-                                ?.takeIf { !it.isJsonNull }
-                                ?.asString
-
-                            e = params
-                                ?.get("e")
-                                ?.takeIf { !it.isJsonNull }
-                                ?.asString
-                        }
-                    }
-                } catch (e: Exception) { }
-
-                if (!e.isNullOrEmpty() && !t.isNullOrEmpty()) {
-                    cfPath = "$cfPath?t=${t}&e=${e}"
-                } else {
-                    if (!cfExpire.isNullOrEmpty()) {
-                        val parts = cfExpire.split("::")
-                        if (parts.size >= 2) {
-                            cfPath = "$cfPath?t=${parts[0]}&e=${parts[1]}"
-                        }
+                if (!k.isNullOrEmpty() && !kx.isNullOrEmpty()) {
+                    cfPath = "$cfPath?k=$k&kx=$kx"
+                } else if (!cfExpire.isNullOrEmpty()) {
+                    val parts = cfExpire.split("::")
+                    if (parts.size >= 2) {
+                        cfPath = "$cfPath?t=${parts[0]}&e=${parts[1]}"
                     }
                 }
-                cfPath!! to mapOf("Referer" to mainLink)
+                cfPath to mapOf("Referer" to mainLink, "Origin" to mainLink)
+
             }
-            else -> throw Exception("Missing hls, hlsVideoTiktok or cf in response")
+
+            !sourcePath.isNullOrEmpty() -> {
+                sourcePath to mapOf("Referer" to mainLink)
+            }
+            else -> throw Exception("Missing hls, hlsVideoTiktok, cf or source in response")
         }
 
         val defaultSub = json.getAsJsonObject("defaultSubtitle")

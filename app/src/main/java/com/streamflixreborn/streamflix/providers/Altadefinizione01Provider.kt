@@ -32,8 +32,8 @@ import retrofit2.http.Header
 object Altadefinizione01Provider : Provider {
 
     override val name: String = "Altadefinizione01"
-    override val baseUrl: String = "https://altadefinizione-01.forum"
-    override val logo: String get() = "$baseUrl/templates/Darktemplate_pagespeed/images/logo.png"
+    override val baseUrl: String = "https://altadefinizione-01.fun"
+    override val logo: String get() = "$baseUrl/templates/altadefinizione01/images/logo.png"
     override val language: String = "it"
 
     private const val USER_AGENT = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

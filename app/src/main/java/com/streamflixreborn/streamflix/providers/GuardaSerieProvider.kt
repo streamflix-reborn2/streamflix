@@ -1,6 +1,10 @@
 package com.streamflixreborn.streamflix.providers
 
+import android.content.Context
+import android.util.Log
+import android.webkit.CookieManager
 import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
+import com.streamflixreborn.streamflix.StreamFlixApp
 import com.streamflixreborn.streamflix.adapters.AppAdapter
 import com.streamflixreborn.streamflix.models.Category
 import com.streamflixreborn.streamflix.models.Episode
@@ -13,9 +17,12 @@ import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.Show
 import com.streamflixreborn.streamflix.extractors.Extractor
 import com.streamflixreborn.streamflix.utils.DnsResolver
+import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.TmdbUtils
+import com.streamflixreborn.streamflix.utils.WebViewResolver
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import retrofit2.Retrofit
@@ -28,15 +35,31 @@ import java.util.concurrent.TimeUnit
 import java.net.URLEncoder
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object GuardaSerieProvider : Provider {
 
     override val name = "GuardaSerie"
-    override val baseUrl = "https://guardoserie.run"
-    override val logo: String = "$baseUrl/wp-content/uploads/2021/02/Guardaserie-3.png"
+    override val baseUrl = "https://guardoserie.study"
+    override val logo: String = "$baseUrl/wp-content/uploads/2026/06/Guardoserie1.png"
     override val language = "it"
 
     private const val USER_AGENT = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private const val TAG = "GuardaSerieBypass"
+
+    private var webViewResolver: WebViewResolver? = null
+    private val providerMutex = Mutex()
+
+    fun init(context: Context) {
+        webViewResolver = WebViewResolver(context)
+    }
+
+    private fun getResolver(): WebViewResolver {
+        return webViewResolver ?: WebViewResolver(StreamFlixApp.instance).also {
+            webViewResolver = it
+        }
+    }
 
     private interface GuardaSerieService {
         companion object {
@@ -44,6 +67,7 @@ object GuardaSerieProvider : Provider {
                 val clientBuilder = OkHttpClient.Builder()
                     .readTimeout(30, TimeUnit.SECONDS)
                     .connectTimeout(30, TimeUnit.SECONDS)
+                    .cookieJar(NetworkClient.cookieJar)
 
                 return Retrofit.Builder()
                     .baseUrl(baseUrl)
@@ -97,11 +121,67 @@ object GuardaSerieProvider : Provider {
 
     private val service = GuardaSerieService.build(baseUrl)
 
+    private class CloudflareChallengeException(val url: String) : Exception("Cloudflare challenge detected for $url")
+
+    private fun requiresClearance(html: String): Boolean {
+        return html.contains("Just a moment...", ignoreCase = true) ||
+               html.contains("cf-browser-verification", ignoreCase = true) ||
+               html.contains("Checking your browser", ignoreCase = true)
+    }
+
+
+
+    private suspend fun getDocument(url: String): Document {
+        try {
+            val doc = service.getPage(url)
+            val html = doc.outerHtml()
+            if (requiresClearance(html)) {
+                throw CloudflareChallengeException(url)
+            }
+            return doc
+        } catch (e: Exception) {
+            val httpException = e as? retrofit2.HttpException
+            val isChallengeException = e is CloudflareChallengeException
+
+            // 403 with Cloudflare challenge in body -> open WebView
+            val isCloudflareChallengeOn403 = if (httpException?.code() == 403) {
+                val errorBody = httpException.response()?.errorBody()?.string().orEmpty()
+                requiresClearance(errorBody)
+            } else false
+
+            // Open WebView only if a true Cloudflare challenge is detected
+            if (!isChallengeException && !isCloudflareChallengeOn403) {
+                throw e
+            }
+
+
+            Log.d(TAG, "Using WebView bypass for $url (Cloudflare challenge detected)")
+            val result = providerMutex.withLock {
+                getResolver().getResult(
+                    url = url,
+                    headers = mapOf("User-Agent" to NetworkClient.USER_AGENT),
+                    completion = { currentUrl, htmlText, cookies ->
+                        val isChallenge = requiresClearance(htmlText)
+                        val hasContent = htmlText.contains("movies-list") || htmlText.contains("mvic-desc") || htmlText.contains("player2")
+                        !isChallenge && hasContent
+                    }
+                )
+            }
+            CookieManager.getInstance().flush()
+
+            val parsedDoc = Jsoup.parse(result.html, url).apply { setBaseUri(baseUrl) }
+            if (requiresClearance(parsedDoc.outerHtml())) {
+                throw CloudflareChallengeException(url)
+            }
+            return parsedDoc
+        }
+    }
+
     override suspend fun getHome(): List<Category> = coroutineScope {
         val categories = mutableListOf<Category>()
         
-        val docSerieDeferred = async { service.getSerie() }
-        val docTurcheDeferred = async { service.getTurche() }
+        val docSerieDeferred = async { getDocument("$baseUrl/serie/") }
+        val docTurcheDeferred = async { getDocument("$baseUrl/turche/") }
         
         val docSerie = docSerieDeferred.await()
         val itemsSerie = docSerie.select("div.movies-list.movies-list-full div.ml-item").mapNotNull { el: Element ->
@@ -149,7 +229,7 @@ object GuardaSerieProvider : Provider {
     override suspend fun search(query: String, page: Int): List<AppAdapter.Item> {
         if (query.isBlank()) {
             if (page > 1) return emptyList()
-            val doc = service.getHome()
+            val doc = getDocument(baseUrl)
             return doc.select("li.menu-item:has(> a:matchesOwn(^Genere$)) ul.sub-menu li a[href]")
                 .mapNotNull { a: Element ->
                     val href = a.attr("href").trim()
@@ -160,13 +240,14 @@ object GuardaSerieProvider : Provider {
         }
 
         val encoded = URLEncoder.encode(query, "UTF-8")
+        val searchUrl = if (page > 1) "$baseUrl/page/$page/?s=$encoded" else "$baseUrl/?s=$encoded"
         if (page > 1) {
-            val firstDoc = service.search(encoded)
+            val firstDoc = getDocument("$baseUrl/?s=$encoded")
             val hasPager = firstDoc.selectFirst("div#pagination ul.pagination li:not(.active) a[href]") != null
             if (!hasPager) return emptyList()
         }
 
-        val doc = if (page > 1) service.search(page, encoded) else service.search(encoded)
+        val doc = getDocument(searchUrl)
 
         return doc.select("div.movies-list.movies-list-full div.ml-item").mapNotNull { el: Element ->
             parseGridItem(el)
@@ -174,21 +255,23 @@ object GuardaSerieProvider : Provider {
     }
 
     override suspend fun getMovies(page: Int): List<Movie> {
-        val doc = if (page > 1) service.getMovies(page) else service.getMovies()
+        val url = if (page > 1) "$baseUrl/guarda-film-streaming-ita/page/$page/" else "$baseUrl/guarda-film-streaming-ita/"
+        val doc = getDocument(url)
 
         return doc.select("div.movies-list.movies-list-full div.ml-item")
             .mapNotNull { el: Element -> parseGridItem(el) as? Movie }
     }
 
     override suspend fun getTvShows(page: Int): List<TvShow> {
-        val doc = if (page > 1) service.getSerie(page) else service.getSerie()
+        val url = if (page > 1) "$baseUrl/serie/page/$page/" else "$baseUrl/serie/"
+        val doc = getDocument(url)
         
         return doc.select("div.movies-list.movies-list-full div.ml-item")
             .mapNotNull { el: Element -> parseGridItem(el) as? TvShow }
     }
 
     override suspend fun getMovie(id: String): Movie {
-        val doc = service.getPage(id)
+        val doc = getDocument(id)
 
         val title = doc.selectFirst("div.mvic-desc h3")?.text()?.trim() ?: ""
 
@@ -228,7 +311,7 @@ object GuardaSerieProvider : Provider {
     }
 
     override suspend fun getTvShow(id: String): TvShow {
-        val doc = service.getPage(id)
+        val doc = getDocument(id)
         
         val title = doc.selectFirst("div.mvic-desc h3")?.text()?.trim() ?: ""
         
@@ -282,10 +365,10 @@ object GuardaSerieProvider : Provider {
         val showId = seasonId.substringBefore("#s")
         val seasonNum = seasonId.substringAfter("#s").toIntOrNull() ?: return emptyList()
 
-        val tmdbTvShow = TmdbUtils.getTvShow(cleanTitle(service.getPage(showId).selectFirst("div.mvic-desc h3")?.text() ?: ""), language = language)
+        val doc = getDocument(showId)
+        val tmdbTvShow = TmdbUtils.getTvShow(cleanTitle(doc.selectFirst("div.mvic-desc h3")?.text() ?: ""), language = language)
         val tmdbEpisodes = if (tmdbTvShow != null) TmdbUtils.getEpisodesBySeason(tmdbTvShow.id, seasonNum, language = language) else emptyList()
 
-        val doc = service.getPage(showId)
         val seasonEl = doc.select("div#seasons div.tvseason").firstOrNull { el ->
             val titleText = el.selectFirst("div.les-title strong")?.text()?.trim() ?: ""
             Regex("Stagione\\s+$seasonNum", RegexOption.IGNORE_CASE).containsMatchIn(titleText)
@@ -320,11 +403,8 @@ object GuardaSerieProvider : Provider {
 
     override suspend fun getGenre(id: String, page: Int): Genre {
         return try {
-            val doc = if (page <= 1) {
-                service.getPage(id)
-            } else {
-                service.getPage(id, page)
-            }
+            val url = if (page <= 1) id else "${id.trimEnd('/')}/page/$page/"
+            val doc = getDocument(url)
             val name = ""
             val shows = doc.select("div.movies-list.movies-list-full div.ml-item").mapNotNull { el: Element ->
                 parseGridItem(el) as? Show
@@ -336,7 +416,7 @@ object GuardaSerieProvider : Provider {
     }
 
     override suspend fun getPeople(id: String, page: Int): People {
-        val doc = service.getPage(id)
+        val doc = getDocument(id)
 
         val name = ""
 
@@ -359,7 +439,7 @@ object GuardaSerieProvider : Provider {
     }
 
     override suspend fun getServers(id: String, videoType: Video.Type): List<Video.Server> {
-        val doc = service.getPage(id)
+        val doc = getDocument(id)
 
         // Same logic for both Movies and Episodes as they share the HTML structure
         return doc.select("div#player2 div[id^=tab]").mapIndexedNotNull { index, tabDiv ->

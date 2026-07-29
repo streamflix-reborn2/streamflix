@@ -22,6 +22,7 @@ dependencies {
 android {
     namespace 'com.streamflixreborn.streamflix'
     compileSdk 36
+    ndkVersion "26.1.10909125"
 
     def properties = new Properties()
     properties.load(project.rootProject.file('local.properties').newDataInputStream())
@@ -30,13 +31,26 @@ android {
         applicationId "com.streamflixreborn.streamflix"
         minSdk 21
         targetSdk 35
-        versionCode 156
-        versionName "1.7.227"
+        versionCode 158
+        versionName "1.7.229"
 
         buildConfigField "String", "APP_LAYOUT", "\"${properties.getProperty("APP_LAYOUT")}\""
         buildConfigField "String", "TMDB_API_KEY", "\"${properties.getProperty("TMDB_API_KEY")}\""
         buildConfigField "String", "SUBDL_API_KEY", "\"${properties.getProperty("SUBDL_API_KEY")}\""
         buildConfigField "String", "RABBITSTREAM_SOURCE_API", "\"${properties.getProperty("RABBITSTREAM_SOURCE_API")}\""
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
     }
 
     sourceSets {

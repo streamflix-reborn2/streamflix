@@ -7,21 +7,21 @@
   <br />
   An open-source Android TV and mobile app for educational streaming interface, made with Android Studio, in Kotlin
   <br />
-  <a href="https://github.com/streamflix-reborn/streamflix/releases/latest">
+  <a href="https://github.com/streamflix-reborn2/streamflix/releases/latest">
     <strong>Download app »</strong>
   </a>
   <br />
   <br />
-  <a href="https://github.com/streamflix-reborn/streamflix/issues">Report Bug</a>
+  <a href="https://github.com/streamflix-reborn2/streamflix/issues">Report Bug</a>
   ·
-  <a href="https://github.com/streamflix-reborn/streamflix/issues">Request Feature</a>
+  <a href="https://github.com/streamflix-reborn2/streamflix/issues">Request Feature</a>
 </p>
 
 <details>
   <summary>Table of Contents</summary>
 
 - [About the project](#about-the-project)
-  - [What is Streamflix Reborn?](#-what-is-streamflix-reborn)
+  - [What is Streamflix Reborn?](#-what-is-streamflix-reborn2)
   - [Features](#features)
   - [Built with](#built-with)
 - [Getting started](#getting-started)
@@ -89,7 +89,7 @@ Install [Android Studio](https://developer.android.com/studio)
 1. Clone the project to your local machine
 
 ```bash
-git clone https://github.com/streamflix-reborn/streamflix.git
+git clone https://github.com/streamflix-reborn2/streamflix.git
 ```
 
 2. Open the project in Android Studio

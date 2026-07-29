@@ -48,7 +48,7 @@ object FrenchStreamProvider : Provider, ProviderPortalUrl, ProviderConfigUrl {
             return cachePortalURL.ifEmpty { field }
         }
 
-    override val defaultBaseUrl: String = "https://fs17.lol/"
+    override val defaultBaseUrl: String = "https://fs16.lol/"
     override val baseUrl: String = defaultBaseUrl
         get() {
             val cacheURL = UserPreferences.getProviderCache(this, UserPreferences.PROVIDER_URL)

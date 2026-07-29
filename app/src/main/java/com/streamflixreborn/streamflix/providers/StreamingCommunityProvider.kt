@@ -52,7 +52,7 @@ class StreamingCommunityProvider(private val _language: String? = null) : Provid
     private val TAG: String
         get() = "SCProviderDebug[$LANG]"
 
-    private val DEFAULT_DOMAIN: String = "streamingunity.dog"
+    private val DEFAULT_DOMAIN: String = "streamingunity.cc"
     private val BLOCKED_DOMAINS = setOf("streamingcommunityz.green", "streamingunity.club", "streamingunity.bike", "streamingcommunityz.buzz")
     override val baseUrl = DEFAULT_DOMAIN
     private var _domain: String? = null
