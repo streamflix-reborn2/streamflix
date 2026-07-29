@@ -26,8 +26,9 @@ import retrofit2.http.Headers
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Url
-import okhttp3.ResponseBody
+import com.streamflixreborn.streamflix.utils.Keys
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
@@ -166,7 +167,7 @@ object CB01Provider : Provider {
                     if (c.isLowerCase()) c.titlecase() else c.toString()
                 }
                 Genre(id = normalized, name = normalized)
-        }
+            }
     }
 
     private fun parseHomeMovie(el: Element): Movie? {
@@ -345,28 +346,86 @@ object CB01Provider : Provider {
         val tmdbTvShow = TmdbUtils.getTvShow(title, language = language)
 
         val poster = tmdbTvShow?.poster ?: doc.selectFirst("div.sequex-featured-img.s-post img[src]")?.attr("src")
+        val seasons = mutableListOf<Season>()
+        doc.select("div.sp-wrap").forEachIndexed { index, wrap ->
+            val head = wrap.selectFirst("div.sp-head")?.text()?.trim() ?: return@forEachIndexed
+            if (head.contains("TUTTE LE STAGIONI", ignoreCase = true)) return@forEachIndexed
 
-        val seasons = doc.select("div.sp-wrap").mapNotNull { wrap ->
-            val head = wrap.selectFirst("div.sp-head")?.text()?.trim() ?: return@mapNotNull null
-            if (head.contains(Regex("STAGIONE\\s+\\d+\\s+A\\s+\\d+", RegexOption.IGNORE_CASE)) ||
-                head.contains("TUTTE LE STAGIONI", ignoreCase = true)
-            ) return@mapNotNull null
             val body = wrap.selectFirst("div.sp-body")
             if (body != null) {
-                val hasMixdrop = body.select("a[href]").any { a ->
+                val hasLinks = body.select("a[href]").any { a ->
                     val href = a.attr("href").lowercase()
                     val text = a.text().lowercase()
-                    text.contains("mixdrop") || href.contains("stayonline.pro")
+                    text.contains("mixdrop") || href.contains("stayonline.pro") || href.contains("uprot.net") || href.contains("maxstream")
                 }
-                if (!hasMixdrop) return@mapNotNull null
+                if (!hasLinks) return@forEachIndexed
             }
-            val seasonNumber = Regex("STAGIONE\\s+(\\d+)", RegexOption.IGNORE_CASE)
-                .find(head)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
-            Season(
-                id = "$id#s$seasonNumber",
-                number = seasonNumber,
-                poster = tmdbTvShow?.seasons?.find { it.number == seasonNumber }?.poster
-            )
+
+            val cleanedHead = head
+                .replace(Regex("\\[\\s*hd\\s*(?:/3d)?\\s*\\]", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\s*-\\s*(?:ITA|SUB ITA|HD|HD/3D)\\s*$", RegexOption.IGNORE_CASE), "")
+                .trim()
+
+            val formattedTitle = if (cleanedHead.equals(cleanedHead.uppercase(), ignoreCase = false) && cleanedHead.contains(Regex("[A-Z]"))) {
+                cleanedHead.lowercase().split(" ").joinToString(" ") { word ->
+                    word.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() }
+                }
+            } else {
+                cleanedHead
+            }
+
+            val rangeMatch = Regex("STAGIONE\\s+(\\d+)\\s+(?:A|-|FINO\\s+ALLA)\\s+(\\d+)", RegexOption.IGNORE_CASE).find(head)
+            if (rangeMatch != null) {
+                val start = rangeMatch.groupValues[1].toIntOrNull() ?: 1
+                val end = rangeMatch.groupValues[2].toIntOrNull() ?: start
+                for (s in start..end) {
+                    var candidate = s
+                    while (seasons.any { it.number == candidate }) {
+                        candidate++
+                    }
+                    seasons.add(
+                        Season(
+                            id = "$id#s$candidate#w$index",
+                            number = candidate,
+                            title = if (candidate != s) "$formattedTitle (Stagione $s)" else null,
+                            poster = tmdbTvShow?.seasons?.find { it.number == s }?.poster ?: tmdbTvShow?.poster
+                        )
+                    )
+                }
+            } else {
+                val parsedNumber = Regex("(?:STAGIONE|SEASON)\\s+(\\d+)", RegexOption.IGNORE_CASE)
+                    .find(head)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: (seasons.size + 1)
+                var candidate = parsedNumber
+                while (seasons.any { it.number == candidate }) {
+                    candidate++
+                }
+
+                val cleanSectionName = cleanedHead
+                    .replace(Regex("(?:STAGIONE|SEASON)\\s+\\d+", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("COMPLETA", RegexOption.IGNORE_CASE), "")
+                    .trim()
+
+                val spinOffPoster = if (cleanSectionName.isNotBlank() && !cleanSectionName.equals("SERIE", ignoreCase = true)) {
+                    val spinOffShow = TmdbUtils.getTvShow("$title $cleanSectionName", language = language)
+                    spinOffShow?.poster ?: spinOffShow?.seasons?.find { it.number == parsedNumber }?.poster
+                } else null
+
+                val seasonPoster = spinOffPoster
+                    ?: tmdbTvShow?.seasons?.find { it.number == parsedNumber }?.poster
+                    ?: tmdbTvShow?.seasons?.find { it.number == candidate }?.poster
+                    ?: tmdbTvShow?.poster
+
+                val isStandardSeasonTitle = formattedTitle.matches(Regex("^Stagione\\s+\\d+$", RegexOption.IGNORE_CASE))
+
+                seasons.add(
+                    Season(
+                        id = "$id#s$candidate#w$index",
+                        number = candidate,
+                        title = if (!isStandardSeasonTitle) formattedTitle else null,
+                        poster = seasonPoster
+                    )
+                )
+            }
         }
 
         return TvShow(
@@ -388,24 +447,109 @@ object CB01Provider : Provider {
 
     override suspend fun getEpisodesBySeason(seasonId: String): List<Episode> {
         val showId = seasonId.substringBefore("#s")
-        val seasonNum = seasonId.substringAfter("#s").toIntOrNull() ?: return emptyList()
+        val part = seasonId.substringAfter("#s")
+        val candidateSeasonNum = part.substringBefore("#w").substringBefore("-e").toIntOrNull() ?: 1
+        val wrapIndex = if (part.contains("#w")) part.substringAfter("#w").toIntOrNull() else null
 
         val doc = service.getPage(showId)
-        val tmdbTvShow = TmdbUtils.getTvShow(cleanTitle(doc.selectFirst("h1")?.text() ?: ""), language = language)
-        val tmdbEpisodes = if (tmdbTvShow != null) TmdbUtils.getEpisodesBySeason(tmdbTvShow.id, seasonNum, language = language) else emptyList()
+        val rawShowTitle = doc.selectFirst("h1")?.text() ?: ""
+        val mainTitle = cleanTitle(rawShowTitle)
 
-        val wrap = doc.select("div.sp-wrap").firstOrNull { w ->
-            val head = w.selectFirst("div.sp-head")?.text()?.trim().orEmpty()
-            head.contains(Regex("STAGIONE\\s+$seasonNum", RegexOption.IGNORE_CASE))
+        val wraps = doc.select("div.sp-wrap")
+        val wrap = if (wrapIndex != null && wrapIndex in wraps.indices) {
+            wraps[wrapIndex]
+        } else {
+            wraps.firstOrNull { w ->
+                val head = w.selectFirst("div.sp-head")?.text()?.trim().orEmpty()
+                head.contains(Regex("STAGIONE\\s+$candidateSeasonNum", RegexOption.IGNORE_CASE))
+            } ?: wraps.firstOrNull()
         } ?: return emptyList()
 
+        val headText = wrap.selectFirst("div.sp-head")?.text()?.trim().orEmpty()
+        val parsedSeasonNum = Regex("STAGIONE\\s+(\\d+)", RegexOption.IGNORE_CASE)
+            .find(headText)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: candidateSeasonNum
+
+        val cleanSectionTitle = headText
+            .replace(Regex("\\s*-\\s*(?:ITA|SUB ITA|HD|HD/3D)\\s*$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("STAGIONE\\s+\\d+", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("COMPLETA", RegexOption.IGNORE_CASE), "")
+            .trim()
+
+        val spinOffTitle = if (cleanSectionTitle.isNotBlank() && !cleanSectionTitle.equals("SERIE", ignoreCase = true) && !cleanSectionTitle.equals("TUTTE LE STAGIONI", ignoreCase = true)) {
+            "$mainTitle $cleanSectionTitle"
+        } else null
+
+        val spinOffTvShow = spinOffTitle?.let { TmdbUtils.getTvShow(it, language = language) }
+        val mainTvShow = TmdbUtils.getTvShow(mainTitle, language = language)
+
+        val tmdbTvShow = spinOffTvShow ?: mainTvShow
+        val targetSeasonNum = if (spinOffTvShow != null) parsedSeasonNum else (parsedSeasonNum.takeIf { it > 0 } ?: candidateSeasonNum)
+
+        val tmdbEpisodes = if (tmdbTvShow != null) {
+            TmdbUtils.getEpisodesBySeason(tmdbTvShow.id, targetSeasonNum, language = language)
+        } else emptyList()
+
+        val seasonNum = candidateSeasonNum
         val body = wrap.selectFirst("div.sp-body") ?: return emptyList()
+
+
+        // Check if there is a uprot folder link (msfld)
+        val folderLink = body.select("a[href*=/msfld/]").firstOrNull()?.attr("href")?.trim()
+
+        if (!folderLink.isNullOrBlank()) {
+            return try {
+                val folderDoc = service.getPage(folderLink)
+                val rows = folderDoc.select("table tr")
+
+                val seasonsInFolder = rows.mapNotNull { tr ->
+                    val fileName = tr.selectFirst("td")?.text()?.trim().orEmpty()
+                    Regex("""S(\d{1,2})E""", RegexOption.IGNORE_CASE).find(fileName)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                }.distinct()
+
+                val hasMultipleSeasonsInFolder = seasonsInFolder.size > 1
+
+                rows.mapIndexedNotNull { idx, tr ->
+                    val fileName = tr.selectFirst("td")?.text()?.trim().orEmpty()
+                    val watchUrl = tr.selectFirst("a[href*=/msfi/]")?.attr("href")?.trim()
+                        ?: tr.selectFirst("a[href]")?.attr("href")?.trim()
+                        ?: return@mapIndexedNotNull null
+                    val sAndEMatch = Regex("""S(\d{1,2})E(\d{1,3})""", RegexOption.IGNORE_CASE).find(fileName)
+                    val epNum: Int
+                    if (sAndEMatch != null) {
+                        val fileSeason = sAndEMatch.groupValues[1].toIntOrNull()
+                        val fileEp = sAndEMatch.groupValues[2].toIntOrNull()
+                        if (hasMultipleSeasonsInFolder && fileSeason != null && fileSeason != seasonNum) {
+                            return@mapIndexedNotNull null
+                        }
+                        epNum = fileEp ?: (idx + 1)
+                    } else {
+                        epNum = Regex("""(?:\.|\b|E)(\d{1,4})(?:\.|\b|ITA|WEB|SUB)""", RegexOption.IGNORE_CASE)
+                            .find(fileName)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: Regex("""(\d{1,4})""").find(fileName)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: (idx + 1)
+                    }
+
+                    val tmdbEp = tmdbEpisodes.find { it.number == epNum }
+
+                    Episode(
+                        id = "$showId#epUrl=$watchUrl",
+                        number = epNum,
+                        title = tmdbEp?.title ?: fileName.ifBlank { "Episodio $epNum" },
+                        poster = tmdbEp?.poster,
+                        overview = tmdbEp?.overview
+                    )
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
 
         return body.select("p").mapNotNull { p ->
             val text = p.text().trim()
             val epNum = Regex("(\\d+)[x×](\\d+)").find(text)?.groupValues?.getOrNull(2)?.toIntOrNull()
                 ?: return@mapNotNull null
-            
+
             val tmdbEp = tmdbEpisodes.find { it.number == epNum }
 
             Episode(
@@ -430,6 +574,70 @@ object CB01Provider : Provider {
             Genre(id = id, name = id.substringAfterLast('/').replace('-', ' ').uppercase(), shows = movies)
         } catch (_: Exception) {
             Genre(id = id, name = id.substringAfterLast('/'), shows = emptyList())
+        }
+    }
+
+    /**
+     * Resolves a Maxstream embed URL from a uprot.net URL.
+     *
+     * @param url The uprot.net URL (e.g. /msfi/..., /mse/...)
+     * @param isStayOnline True if the link originated from stayonline.pro
+     */
+    private suspend fun resolveMaxstreamUrl(url: String, isStayOnline: Boolean = false): String? {
+        // 1. Links from stayonline.pro or containing /msfi/ use Keys.getUprotMsfiApiBase()
+        if (isStayOnline || url.contains("/msfi/", ignoreCase = true)) {
+            val uprotId = Regex("""/ms[a-zA-Z]+/([A-Za-z0-9+/=]+)""").find(url)?.groupValues?.getOrNull(1)
+                ?: return null
+            return callUprotApi(Keys.getUprotMsfiApiBase(), uprotId)
+        }
+
+        // 2. Direct uprot.net links (/mse/): Try HTML base64 decoding first
+        val uprotUrl = url.replace("/msf/", "/mse/")
+        try {
+            val doc = service.getPage(uprotUrl)
+            val html = doc.html()
+
+            val b64Base = Regex("""decodedBaseUrl\s*=\s*atob\(["']([^"']+)["']\)""").find(html)?.groupValues?.getOrNull(1)
+            val b64Val = Regex("""decodedEncryptedVal\s*=\s*atob\(["']([^"']+)["']\)""").find(html)?.groupValues?.getOrNull(1)
+
+            if (!b64Base.isNullOrBlank() && !b64Val.isNullOrBlank()) {
+                val decodedBase = String(android.util.Base64.decode(b64Base, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                val decodedVal = String(android.util.Base64.decode(b64Val, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                val maxstreamUrl = decodedBase + decodedVal
+                if (maxstreamUrl.isNotBlank()) return maxstreamUrl
+            }
+        } catch (_: Exception) { }
+
+        // 3. Fallback for direct uprot.net links when base64 fails: Call Keys.getUprotMseApiBase()
+        val uprotId = Regex("""/ms[a-zA-Z]+/([A-Za-z0-9+/=]+)""").find(url)?.groupValues?.getOrNull(1)
+            ?: return null
+        return callUprotApi(Keys.getUprotMseApiBase(), uprotId)
+
+    }
+
+
+
+
+    private fun callUprotApi(apiBase: String, uprotId: String): String? {
+        val apiUrl = "$apiBase$uprotId&key=${Keys.getUprotApiKey()}"
+        return try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+            val req = okhttp3.Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .build()
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return null
+            val responseText = resp.body?.string()?.trim().orEmpty()
+            if (responseText.isBlank() || responseText.contains("<") || responseText.contains(" ")) return null
+
+            "https://maxstream.video/emhuhi/$responseText"
+
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -464,7 +672,7 @@ object CB01Provider : Provider {
                         val normalized = href
                         val lowerName = baseName.lowercase()
                         if (!lowerName.contains("mixdrop") && !lowerName.contains("maxstream")) continue
-                        if (lowerName.contains("maxstream") && !normalized.contains("uprot.net", ignoreCase = true)) continue
+                        if (lowerName.contains("maxstream") && !normalized.contains("uprot.net", ignoreCase = true) && !normalized.contains("stayonline.pro", ignoreCase = true)) continue
 
                         fun addServer(finalUrl: String) {
                             val labeled = when {
@@ -492,24 +700,30 @@ object CB01Provider : Provider {
                                         referer = "https://stayonline.pro/"
                                     )
                                     val body = resp.body()?.string().orEmpty()
-                                    val mixdropUrl = try {
+                                    val stayUrl = try {
                                         val json = JSONObject(body)
                                         if (json.optString("status").equals("success", ignoreCase = true)) {
                                             json.optJSONObject("data")?.optString("value")?.takeIf { it.isNotBlank() }
                                         } else null
                                     } catch (_: Exception) { null }
-                                    if (!mixdropUrl.isNullOrBlank()) addServer(mixdropUrl)
+
+                                    if (!stayUrl.isNullOrBlank()) {
+                                        if (lowerName.contains("mixdrop")) {
+                                            addServer(stayUrl)
+                                        } else if (lowerName.contains("maxstream")) {
+                                            val finalMaxstream = resolveMaxstreamUrl(stayUrl, isStayOnline = true)
+                                            if (!finalMaxstream.isNullOrBlank()) {
+                                                addServer(finalMaxstream)
+                                            }
+                                        }
+                                    }
                                 } catch (_: Exception) { }
                             }
                         } else if (normalized.contains("uprot.net", ignoreCase = true)) {
-                            val uprotUrl = normalized.replace("/msf/", "/mse/")
-                            try {
-                                val doc = service.getPage(uprotUrl)
-                                val maxstreamUrl = doc.selectFirst("#ads_space center a[href]")?.attr("href")
-                                if (!maxstreamUrl.isNullOrBlank()) {
-                                    addServer(maxstreamUrl)
-                                }
-                            } catch (_: Exception) { }
+                            val finalMaxstream = resolveMaxstreamUrl(normalized, isStayOnline = false)
+                            if (!finalMaxstream.isNullOrBlank()) {
+                                addServer(finalMaxstream)
+                            }
                         } else {
                             addServer(normalized)
                         }
@@ -519,6 +733,18 @@ object CB01Provider : Provider {
                 hdServers + sdServers + servers3D
             }
             is Video.Type.Episode -> {
+                if (id.contains("#epUrl=")) {
+                    val watchUrl = id.substringAfter("#epUrl=")
+                    val servers = mutableListOf<Video.Server>()
+                    val finalMaxstream = resolveMaxstreamUrl(watchUrl, isStayOnline = watchUrl.contains("stayonline.pro"))
+                    if (!finalMaxstream.isNullOrBlank()) {
+                        servers.add(Video.Server(id = finalMaxstream, name = "Maxstream", src = finalMaxstream))
+                    } else {
+                        servers.add(Video.Server(id = watchUrl, name = "Maxstream", src = watchUrl))
+                    }
+                    return servers
+                }
+
                 val showId = id.substringBefore("#s")
                 val part = id.substringAfter("#s")
                 val seasonNum = part.substringBefore("-e").toIntOrNull() ?: return emptyList()
@@ -540,7 +766,7 @@ object CB01Provider : Provider {
                 for (a in line.select("a[href]")) {
                     val href = a.attr("href").trim()
                     val name = a.text().trim().lowercase()
-                    if (href.isBlank() || !name.contains("mixdrop")) continue
+                    if (href.isBlank() || (!name.contains("mixdrop") && !name.contains("maxstream"))) continue
 
                     if (href.contains("stayonline.pro", ignoreCase = true)) {
                         val stayId = Regex("/l/([A-Za-z0-9]+)/?").find(href)?.groupValues?.getOrNull(1)
@@ -554,19 +780,32 @@ object CB01Provider : Provider {
                                     referer = "https://stayonline.pro/"
                                 )
                                 val body = resp.body()?.string().orEmpty()
-                                val mixdropUrl = try {
+                                val targetUrl = try {
                                     val json = JSONObject(body)
                                     if (json.optString("status").equals("success", ignoreCase = true)) {
                                         json.optJSONObject("data")?.optString("value")?.takeIf { it.isNotBlank() }
                                     } else null
                                 } catch (_: Exception) { null }
-                                if (!mixdropUrl.isNullOrBlank()) {
-                                    servers.add(Video.Server(id = mixdropUrl, name = "Mixdrop", src = mixdropUrl))
+
+                                if (!targetUrl.isNullOrBlank()) {
+                                    if (name.contains("mixdrop")) {
+                                        servers.add(Video.Server(id = targetUrl, name = "Mixdrop", src = targetUrl))
+                                    } else if (name.contains("maxstream")) {
+                                        val finalMaxstream = resolveMaxstreamUrl(targetUrl, isStayOnline = true)
+                                        if (!finalMaxstream.isNullOrBlank()) {
+                                            servers.add(Video.Server(id = finalMaxstream, name = "Maxstream", src = finalMaxstream))
+                                        }
+                                    }
                                 }
                             } catch (_: Exception) { }
                         }
+                    } else if (name.contains("maxstream") || href.contains("uprot.net", ignoreCase = true)) {
+                        val finalMaxstream = resolveMaxstreamUrl(href, isStayOnline = false)
+                        if (!finalMaxstream.isNullOrBlank()) {
+                            servers.add(Video.Server(id = finalMaxstream, name = "Maxstream", src = finalMaxstream))
+                        }
                     } else {
-                        servers.add(Video.Server(id = href, name = "Mixdrop", src = href))
+                        servers.add(Video.Server(id = href, name = if (name.contains("mixdrop")) "Mixdrop" else "Server", src = href))
                     }
                 }
 
