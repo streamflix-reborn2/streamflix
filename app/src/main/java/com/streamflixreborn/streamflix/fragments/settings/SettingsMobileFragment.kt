@@ -63,7 +63,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         val title: String?,
     )
 
-    private val DEFAULT_DOMAIN_VALUE = "streamingunity.dog"
+    private val DEFAULT_DOMAIN_VALUE = "streamingunity.cc"
     private val DEFAULT_SERIENSTREAM_DOMAIN_VALUE = "serienstream.to"
     private val DEFAULT_MOFLIX_DOMAIN_VALUE = "moflix-stream.xyz"
     private val DEFAULT_CUEVANA_DOMAIN_VALUE = "cuevana3.la"
@@ -455,7 +455,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
             startActivity(
                 Intent(
                     Intent.ACTION_VIEW,
-                    Uri.parse("https://github.com/streamflix-reborn/streamflix")
+                    Uri.parse("https://github.com/streamflix-reborn2/streamflix")
                 )
             )
             true

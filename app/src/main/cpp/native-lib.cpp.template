@@ -1,0 +1,67 @@
+#include <jni.h>
+#include <string>
+#include <array>
+#include <cstring>
+
+// Compile-time XOR obfuscation — each string has a unique key via __COUNTER__
+template<int N>
+struct PRNG {
+    static constexpr unsigned int seed = (1013904223 + N * 1664525) ^ 0x5A5A5A5A;
+    static constexpr unsigned char value = (seed ^ (seed >> 8) ^ (seed >> 16)) & 0xFF;
+};
+
+template<size_t Size, int SeedCounter>
+class XorString {
+private:
+    std::array<unsigned char, Size> _data;
+    static constexpr unsigned char _key = PRNG<SeedCounter>::value == 0 ? 0xAB : PRNG<SeedCounter>::value;
+
+public:
+    constexpr XorString(const char* str) : _data{} {
+        for (size_t i = 0; i < Size; ++i) {
+            _data[i] = str[i] ^ _key;
+        }
+    }
+
+    // Decrypts into a temporary RAM buffer, creates jstring and immediately clears memory
+    jstring toJString(JNIEnv* env) const {
+        char* buf = new char[Size + 1];
+        for (size_t i = 0; i < Size; ++i) {
+            buf[i] = (char)(_data[i] ^ _key);
+        }
+        buf[Size] = '\0';
+        jstring result = env->NewStringUTF(buf);
+        memset(buf, 0, Size);
+        delete[] buf;
+        return result;
+    }
+};
+
+#define OBFUSCATE(str) ([]() { \
+    constexpr size_t size = sizeof(str) - 1; \
+    static constexpr XorString<size, __COUNTER__> obfuscated(str); \
+    return obfuscated; \
+}())
+
+extern "C" {
+
+JNIEXPORT jstring JNICALL
+Java_com_streamflixreborn_streamflix_utils_Keys_getUprotMsfiApiBase(JNIEnv *env, jobject thiz) {
+    return OBFUSCATE("{{UPROT_MSFI_API_BASE}}").toJString(env);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_streamflixreborn_streamflix_utils_Keys_getUprotMseApiBase(JNIEnv *env, jobject thiz) {
+    return OBFUSCATE("{{UPROT_MSE_API_BASE}}").toJString(env);
+}
+
+
+
+
+JNIEXPORT jstring JNICALL
+Java_com_streamflixreborn_streamflix_utils_Keys_getUprotApiKey(JNIEnv *env, jobject thiz) {
+    return OBFUSCATE("{{UPROT_API_KEY}}").toJString(env);
+}
+
+
+}

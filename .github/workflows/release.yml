@@ -26,6 +26,17 @@ jobs:
           echo TMDB_API_KEY=$TMDB_API_KEY >> local.properties
           echo RABBITSTREAM_SOURCE_API=$RABBITSTREAM_SOURCE_API >> local.properties
 
+      - name: Generate native-lib.cpp from template
+        env:
+          UPROT_MSFI_API_BASE: ${{ secrets.UPROT_MSFI_API_BASE }}
+          UPROT_MSE_API_BASE: ${{ secrets.UPROT_MSE_API_BASE }}
+          UPROT_API_KEY: ${{ secrets.UPROT_API_KEY }}
+        run: |
+          sed -e "s|{{UPROT_MSFI_API_BASE}}|$UPROT_MSFI_API_BASE|g" \
+              -e "s|{{UPROT_MSE_API_BASE}}|$UPROT_MSE_API_BASE|g" \
+              -e "s|{{UPROT_API_KEY}}|$UPROT_API_KEY|g" \
+              app/src/main/cpp/native-lib.cpp.template > app/src/main/cpp/native-lib.cpp
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
