@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
+import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -29,21 +31,75 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Request
+import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 
 class WebViewResolver(private val context: Context) {
+
+    private companion object {
+        private val popupHosts = setOf(
+            "watchcolleague.com",
+            "kettledroopingcontinuation.com",
+            "portalfluently.com",
+            "flushpersist.com",
+            "cdn.show-sb.com",
+            "cdn.redgarto.com",
+            "workdeadlinededicate.com",
+        )
+        private const val POPUP_BLOCKER_SCRIPT = """
+            (function() {
+              if (window.__streamflixPopupBlockerInstalled) return;
+              window.__streamflixPopupBlockerInstalled = true;
+              window.open = function() { return null; };
+              document.addEventListener('click', function(event) {
+                var link = event.target && event.target.closest
+                  ? event.target.closest('a, area') : null;
+                if (link && (link.target === '_blank' || link.target === '_new')) {
+                  event.preventDefault();
+                  event.stopImmediatePropagation();
+                }
+              }, true);
+              function removeAdPopups(root) {
+                var nodes = (root || document).querySelectorAll
+                  ? (root || document).querySelectorAll('*') : [];
+                for (var i = 0; i < nodes.length; i++) {
+                  var el = nodes[i];
+                  var text = ((el.id || '') + ' ' + (el.className || '') + ' ' +
+                    (el.getAttribute('aria-label') || '')).toLowerCase();
+                  if (!/(popup|popunder|pop-up|interstitial|advertisement|ad-overlay)/.test(text)) continue;
+                  var style = window.getComputedStyle(el);
+                  if ((style.position === 'fixed' || style.position === 'absolute') &&
+                      parseInt(style.zIndex || '0', 10) >= 10) {
+                    el.remove();
+                  }
+                }
+              }
+              removeAdPopups(document);
+              new MutationObserver(function(records) {
+                for (var i = 0; i < records.length; i++) {
+                  for (var j = 0; j < records[i].addedNodes.length; j++) {
+                    var node = records[i].addedNodes[j];
+                    if (node.nodeType === 1) removeAdPopups(node);
+                  }
+                }
+              }).observe(document.documentElement || document, { childList: true, subtree: true });
+            })();
+        """
+    }
 
     data class Result(
         val html: String,
         val evaluatedValue: String? = null,
         val finalUrl: String? = null,
+        val cookies: String = "",
     )
 
     private var webView: WebView? = null
     private var dialog: AlertDialog? = null
     private val mutex = Mutex()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val TAG = "Cine24hBypass"
+    private val TAG = "WebViewResolver"
 
     private var cursorX = 0f
     private var cursorY = 0f
@@ -118,7 +174,8 @@ class WebViewResolver(private val context: Context) {
 
             // Stabilità Rendering Software per Android TV 9 (come da registro)
             if (isTv) {
-                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                // Turnstile needs a functioning canvas/WebGL context.
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
             }
 
             settings.apply {
@@ -158,6 +215,35 @@ class WebViewResolver(private val context: Context) {
             }
 
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                ): WebResourceResponse? {
+                    val requestUrl = request?.url?.toString().orEmpty()
+                    if (isPopupRequest(requestUrl)) {
+                        Log.d(TAG, "[WebView] Blocked popup resource: $requestUrl")
+                        return emptyBlockedResponse()
+                    }
+                    // Keep Cloudflare's native WebView session intact.
+                    if (isCloudflareRequest(requestUrl)) return null
+                    return request?.let(::loadThroughDoH)
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: SslErrorHandler?,
+                    error: SslError?,
+                ) {
+                    val initialHost = Uri.parse(url).host.orEmpty()
+                    val errorHost = Uri.parse(error?.url.orEmpty()).host.orEmpty()
+                    if (handler != null && initialHost.equals(errorHost, ignoreCase = true)) {
+                        Log.w(TAG, "[WebView] Proceeding with scoped SSL error for $errorHost")
+                        handler.proceed()
+                    } else {
+                        handler?.cancel()
+                    }
+                }
+
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: WebResourceRequest?,
@@ -165,6 +251,10 @@ class WebViewResolver(private val context: Context) {
                     val targetUrl = request?.url?.toString().orEmpty()
                     val isMainFrame = request?.isForMainFrame ?: true
                     if (targetUrl.isBlank()) return false
+                    if (isPopupRequest(targetUrl)) {
+                        Log.d(TAG, "[WebView] Blocked popup navigation: $targetUrl")
+                        return true
+                    }
                     val allowed = shouldAllowNavigation?.invoke(targetUrl, isMainFrame) ?: true
                     if (!allowed) {
                         Log.d(TAG, "[WebView] Blocked navigation: $targetUrl (mainFrame=$isMainFrame)")
@@ -174,6 +264,7 @@ class WebViewResolver(private val context: Context) {
 
                 override fun onPageFinished(view: WebView?, currentUrl: String?) {
                     Log.d(TAG, "[WebView] onPageFinished: $currentUrl")
+                    view?.evaluateJavascript(POPUP_BLOCKER_SCRIPT, null)
                     mainHandler.postDelayed({
                         if (webView != null) {
                             checkChallengeStatus(view, currentUrl ?: url, completion, continuation, valueScript, pageReadyScriptProvider)
@@ -191,6 +282,71 @@ class WebViewResolver(private val context: Context) {
         } else {
             webView?.loadUrl(url, headers)
         }
+    }
+
+    /** Route ordinary WebView GET resources through the app's DoH-backed client. */
+    private fun loadThroughDoH(request: WebResourceRequest): WebResourceResponse? {
+        val requestUrl = request.url?.toString().orEmpty()
+        if (!request.method.equals("GET", ignoreCase = true) ||
+            (!requestUrl.startsWith("http://", ignoreCase = true) &&
+                    !requestUrl.startsWith("https://", ignoreCase = true))
+        ) return null
+
+        return runCatching {
+            val requestBuilder = Request.Builder().url(requestUrl)
+            request.requestHeaders.forEach { (name, value) ->
+                if (!name.equals("Host", ignoreCase = true) &&
+                    !name.equals("Connection", ignoreCase = true) &&
+                    !name.equals("Accept-Encoding", ignoreCase = true) &&
+                    !name.equals("Content-Length", ignoreCase = true)
+                ) {
+                    requestBuilder.header(name, value)
+                }
+            }
+
+            val response = NetworkClient.default.newCall(requestBuilder.build()).execute()
+            val body = response.body ?: return@runCatching null
+            val contentType = body.contentType()
+            val responseHeaders = response.headers.toMultimap()
+                .mapValues { (_, values) -> values.joinToString(",") }
+                .filterKeys { key ->
+                    !key.equals("content-encoding", ignoreCase = true) &&
+                            !key.equals("content-length", ignoreCase = true) &&
+                            !key.equals("transfer-encoding", ignoreCase = true)
+                }
+
+            WebResourceResponse(
+                contentType?.toString()?.substringBefore(';') ?: "application/octet-stream",
+                contentType?.parameter("charset") ?: "UTF-8",
+                body.byteStream()
+            ).also { webResponse ->
+                webResponse.setStatusCodeAndReasonPhrase(
+                    response.code,
+                    response.message.ifBlank { "OK" }
+                )
+                webResponse.responseHeaders = responseHeaders
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "[WebView] DoH request failed; falling back to WebView: $requestUrl", error)
+        }.getOrNull()
+    }
+
+    private fun isPopupRequest(url: String): Boolean {
+        val host = runCatching { Uri.parse(url).host.orEmpty().lowercase() }.getOrDefault("")
+        return popupHosts.any { host == it || host.endsWith(".$it") }
+    }
+
+    private fun isCloudflareRequest(url: String): Boolean {
+        val host = runCatching { Uri.parse(url).host.orEmpty().lowercase() }.getOrDefault("")
+        return host == "cloudflare.com" || host.endsWith(".cloudflare.com")
+    }
+
+    private fun emptyBlockedResponse(): WebResourceResponse {
+        return WebResourceResponse(
+            "text/plain",
+            "UTF-8",
+            ByteArrayInputStream(ByteArray(0))
+        )
     }
 
     private fun checkChallengeStatus(
@@ -235,7 +391,7 @@ class WebViewResolver(private val context: Context) {
                 Log.d(TAG, "[WebView] SUCCESS detected! Closing bypass.")
                 cookieManager.flush()
                 if (continuation.isActive) {
-                    finalizeResult(view, cleanHtml, currentUrl, valueScript, continuation)
+                    finalizeResult(view, cleanHtml, currentUrl, cookies, valueScript, continuation)
                 }
                 return@evaluateJavascript
             }
@@ -253,7 +409,9 @@ class WebViewResolver(private val context: Context) {
                 }, 2000)
             } else {
                 Log.w(TAG, "[WebView] Max polling reached")
-                if (continuation.isActive) finalizeResult(view, cleanHtml, currentUrl, valueScript, continuation)
+                if (continuation.isActive) {
+                    finalizeResult(view, cleanHtml, currentUrl, cookies, valueScript, continuation)
+                }
             }
         }
     }
@@ -262,6 +420,7 @@ class WebViewResolver(private val context: Context) {
         view: WebView?,
         html: String,
         finalUrl: String?,
+        cookies: String,
         valueScript: String?,
         continuation: kotlinx.coroutines.CancellableContinuation<Result>,
     ) {
@@ -270,6 +429,7 @@ class WebViewResolver(private val context: Context) {
                 Result(
                     html = "<html>$html</html>",
                     finalUrl = finalUrl,
+                    cookies = cookies,
                 )
             )
             cleanup()
@@ -283,6 +443,7 @@ class WebViewResolver(private val context: Context) {
                         html = "<html>$html</html>",
                         evaluatedValue = evaluated?.trim(),
                         finalUrl = finalUrl,
+                        cookies = cookies,
                     )
                 )
             }
