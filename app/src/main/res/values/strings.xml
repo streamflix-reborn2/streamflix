@@ -382,7 +382,7 @@
     <string name="settings_frenchstream_use_new_interface_off">Off</string>
  
     <string name="settings_subtitles_category">Subtitles</string>
-    <string name="settings_subtitles_off_by_default_title">Turn off subtitles off by default</string>
+    <string name="settings_subtitles_off_by_default_title">Turn off subtitles by default</string>
     <string name="settings_subtitles_off_by_default_summary">Turn off subtitles by default when loading a video. You can still manually enable them during playback.</string>
 
     <string name="settings_server_voe_category">VOE server settings</string>
