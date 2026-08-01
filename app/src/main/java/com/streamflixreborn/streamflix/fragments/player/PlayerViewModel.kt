@@ -115,7 +115,12 @@ class PlayerViewModel(
         }
     }
 
-    fun getVideo(server: Video.Server) = viewModelScope.launch(Dispatchers.IO) {
+    /**
+         * Loads video data for the selected server and applies the configured subtitle preferences.
+         *
+         * @param server The server from which to load the video.
+         */
+        fun getVideo(server: Video.Server) = viewModelScope.launch(Dispatchers.IO) {
         Log.d("PlayerViewModel", "Inizio estrazione video dal server: ${server.name}")
         _state.emit(State.LoadingVideo(server))
         try {

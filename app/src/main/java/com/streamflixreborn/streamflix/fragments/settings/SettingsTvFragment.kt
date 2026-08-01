@@ -1926,6 +1926,9 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         return ((millis + 60_000L - 1L) / 60_000L).toInt().coerceAtLeast(1)
     }
 
+    /**
+     * Refreshes the settings screen with the current application preferences and state.
+     */
     override fun onResume() {
         super.onResume()
         applyScreenTitle()

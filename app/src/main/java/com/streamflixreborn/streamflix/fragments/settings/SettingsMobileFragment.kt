@@ -1443,6 +1443,9 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         backupLoadingDialog = null
     }
 
+    /**
+     * Refreshes the settings screen title, labels, visibility, and preference values when the fragment resumes.
+     */
     override fun onResume() {
         super.onResume()
         applyScreenTitle()
