@@ -311,6 +311,10 @@
     <string name="settings_frenchstream_use_new_interface_on">Ein</string>
     <string name="settings_frenchstream_use_new_interface_off">Aus</string>
 
+    <string name="settings_subtitles_category">Untertitel</string>
+    <string name="settings_subtitles_off_by_default_title">Untertitel standardmäßig deaktivieren</string>
+    <string name="settings_subtitles_off_by_default_summary">Deaktiviert Untertitel standardmäßig beim Laden eines Videos. Sie können sie während der Wiedergabe weiterhin manuell aktivieren.</string>
+
     <string name="settings_server_voe_category">VOE-Server-Einstellungen</string>
     <string name="settings_server_voe_title">Auto-Untertitel deaktivieren</string>
     <string name="settings_server_voe_summary">Verhindert das automatische Laden von VOE, Vidnest und Vidzy-Untertiteln</string>

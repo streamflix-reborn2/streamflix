@@ -221,6 +221,10 @@
     <string name="settings_frenchstream_use_new_interface_on">تشغيل</string>
     <string name="settings_frenchstream_use_new_interface_off">إيقاف</string>
 
+    <string name="settings_subtitles_category">الترجمة</string>
+    <string name="settings_subtitles_off_by_default_title">إيقاف تشغيل الترجمة افتراضيًا</string>
+    <string name="settings_subtitles_off_by_default_summary">إيقاف تشغيل الترجمة افتراضيًا عند تحميل الفيديو. لا يزال بإمكانك تمكينها يدويًا أثناء التشغيل.</string>
+
     <string name="settings_server_voe_category">إعدادات الخوادم</string>
     <string name="settings_server_voe_title">تعطيل الترجمات التلقائية للخوادم</string>
     <string name="settings_server_voe_summary">إذا تم تفعيل هذا الخيار، فلن يتم تفعيل ترجمات خوادم VOE وVidnest وVidzy تلقائيًا حتى لو كانت متاحة ومحددة كافتراضية</string>

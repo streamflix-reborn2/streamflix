@@ -381,6 +381,10 @@
     <string name="settings_frenchstream_use_new_interface_on">On</string>
     <string name="settings_frenchstream_use_new_interface_off">Off</string>
  
+    <string name="settings_subtitles_category">Subtitles</string>
+    <string name="settings_subtitles_off_by_default_title">Turn off subtitles off by default</string>
+    <string name="settings_subtitles_off_by_default_summary">Turn off subtitles by default when loading a video. You can still manually enable them during playback.</string>
+
     <string name="settings_server_voe_category">VOE server settings</string>
     <string name="settings_server_voe_title">Disable server auto subtitles</string>
     <string name="settings_server_voe_summary">If enabled, subtitles from VOE, Vidnest and Vidzy servers will not be active by default even if they are available and have a default true value</string>

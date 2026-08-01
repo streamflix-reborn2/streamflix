@@ -371,6 +371,10 @@
     <string name="settings_frenchstream_use_new_interface_on">Activado</string>
     <string name="settings_frenchstream_use_new_interface_off">Desactivado</string>
 
+    <string name="settings_subtitles_category">Subtítulos</string>
+    <string name="settings_subtitles_off_by_default_title">Desactivar subtítulos por defecto</string>
+    <string name="settings_subtitles_off_by_default_summary">Desactiva los subtítulos de forma predeterminada al cargar un video. Aún puedes activarlos manualmente durante la reproducción.</string>
+
     <string name="settings_server_voe_category">Ajustes del servidor VOE</string>
     <string name="settings_server_voe_title">Desactivar subtítulos automáticos del servidor</string>
     <string name="settings_server_voe_summary">Si está activado, los subtítulos de los servidores VOE, Vidnest y Vidzy no se activarán automáticamente aunque estén disponibles y tengan el valor predeterminado true</string>

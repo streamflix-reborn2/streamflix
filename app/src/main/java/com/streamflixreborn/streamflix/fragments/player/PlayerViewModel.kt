@@ -123,18 +123,23 @@ class PlayerViewModel(
             if (video.source.isEmpty()) throw Exception("No source found")
 
             // LOGICA SOTTOTITOLI GLOBALE: 
-            // Se il provider non ha già impostato un default (es. i "forced" in spagnolo),
+            // Se l'utente ha scelto di disattivare i sottotitoli di default, rimuoviamo qualsiasi default.
+            // Altrimenti, se il provider non ha già impostato un default (es. i "forced" in spagnolo),
             // allora proviamo ad attivare l'ultimo sottotitolo usato dall'utente.
             // MA: se siamo su un provider spagnolo e non ci sono forced, non dobbiamo attivare nulla.
-            val currentProviderLang = UserPreferences.currentProvider?.language ?: ""
-            val hasDefaultAlready = video.subtitles.any { it.default }
+            if (UserPreferences.subtitlesOffByDefault) {
+                video.subtitles.forEach { it.default = false }
+            } else {
+                val currentProviderLang = UserPreferences.currentProvider?.language ?: ""
+                val hasDefaultAlready = video.subtitles.any { it.default }
 
-            if (!hasDefaultAlready && currentProviderLang != "es") {
-                if (!(video.useServerSubtitleSetting && UserPreferences.serverAutoSubtitlesDisabled)) {
-                    video.subtitles
-                        .firstOrNull { it.label.startsWith(UserPreferences.subtitleName ?: "") }
-                        ?.default = true
-		}
+                if (!hasDefaultAlready && currentProviderLang != "es") {
+                    if (!(video.useServerSubtitleSetting && UserPreferences.serverAutoSubtitlesDisabled)) {
+                        video.subtitles
+                            .firstOrNull { it.label.startsWith(UserPreferences.subtitleName ?: "") }
+                            ?.default = true
+                    }
+                }
             }
 
             Log.d("PlayerViewModel", "Estrazione video completata con successo")

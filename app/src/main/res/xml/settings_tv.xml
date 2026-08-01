@@ -116,6 +116,16 @@
         </PreferenceCategory>
 
         <PreferenceCategory
+            android:title="@string/settings_subtitles_category">
+
+            <SwitchPreference
+                android:key="SUBTITLES_OFF_BY_DEFAULT"
+                android:title="@string/settings_subtitles_off_by_default_title"
+                android:summary="@string/settings_subtitles_off_by_default_summary"
+                android:defaultValue="false" />
+        </PreferenceCategory>
+
+        <PreferenceCategory
             android:title="@string/settings_server_voe_category">
 
             <SwitchPreference
