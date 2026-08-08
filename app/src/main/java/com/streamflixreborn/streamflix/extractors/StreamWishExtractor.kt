@@ -3,6 +3,7 @@ package com.streamflixreborn.streamflix.extractors
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -189,6 +190,20 @@ open class StreamWishExtractor : Extractor() {
                     val webView = WebView(context)
                     webView.settings.javaScriptEnabled = true
                     webView.settings.domStorageEnabled = true
+                    // Ad-supported embed pages (this is the host CineHax's "streamwish"
+                    // servers resolve to, among others) try to spawn popups/new tabs via
+                    // window.open() during this redirect hop - block that instead of letting
+                    // it surface as an ad to the user.
+                    webView.settings.javaScriptCanOpenWindowsAutomatically = false
+                    webView.settings.setSupportMultipleWindows(false)
+                    webView.webChromeClient = object : WebChromeClient() {
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?,
+                        ): Boolean = false
+                    }
 
                     webView.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
