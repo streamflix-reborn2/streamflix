@@ -122,6 +122,7 @@ interface Provider {
             PlutoTvItProvider to ProviderSupport(movies = false, tvShows = true),
             PlutoTvUsProvider to ProviderSupport(movies = false, tvShows = true),
             CineCityProvider to ProviderSupport(movies = false, tvShows = true),
+            CineHaxProvider to ProviderSupport(movies = true, tvShows = true),
             VavooProvider("de") to ProviderSupport(movies = false, tvShows = true),
             VavooProvider("it") to ProviderSupport(movies = false, tvShows = true),
             VavooProvider("fr") to ProviderSupport(movies = false, tvShows = true),
