@@ -164,4 +164,8 @@
     <string name="settings_app_language_french">Francuski</string>
     <string name="settings_app_language_italian">Wloski</string>
     <string name="settings_app_language_polish">Polski</string>
+
+    <string name="settings_subtitles_category">Napisy</string>
+    <string name="settings_subtitles_off_by_default_title">Domyślnie wyłącz napisy</string>
+    <string name="settings_subtitles_off_by_default_summary">Wyłącza napisy domyślnie podczas ładowania wideo. Nadal możesz je włączyć ręcznie podczas odtwarzania.</string>
 </resources>

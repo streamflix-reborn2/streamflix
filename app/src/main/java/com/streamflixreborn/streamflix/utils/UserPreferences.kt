@@ -163,6 +163,12 @@ object UserPreferences {
             Key.SERVER_AUTO_SUBTITLES_DISABLED.setBoolean(value)
         }
 
+    var subtitlesOffByDefault: Boolean
+        get() = Key.SUBTITLES_OFF_BY_DEFAULT.getBoolean() ?: false
+        set(value) {
+            Key.SUBTITLES_OFF_BY_DEFAULT.setBoolean(value)
+        }
+
     var selectedTheme: String
         get() = Key.SELECTED_THEME.getString() ?: "default"
         set(value) = Key.SELECTED_THEME.setString(value)
@@ -518,6 +524,7 @@ object UserPreferences {
         FORCE_EXTRA_BUFFERING,
         AUTOPLAY_BUFFER,
         SERVER_AUTO_SUBTITLES_DISABLED,
+        SUBTITLES_OFF_BY_DEFAULT,
         ENABLE_TMDB,
         PARENTAL_CONTROL_PIN,
         PARENTAL_CONTROL_ADMIN_PIN,

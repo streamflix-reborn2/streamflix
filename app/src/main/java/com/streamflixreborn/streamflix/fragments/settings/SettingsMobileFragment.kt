@@ -529,6 +529,14 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
             }
         }
 
+        findPreference<SwitchPreference>("SUBTITLES_OFF_BY_DEFAULT")?.apply {
+            isChecked = UserPreferences.subtitlesOffByDefault
+            setOnPreferenceChangeListener { _, newValue ->
+                UserPreferences.subtitlesOffByDefault = newValue as Boolean
+                true
+            }
+        }
+
         val HasConfigProvider = UserPreferences.currentProvider is ProviderConfigUrl
         findPreference<PreferenceCategory>("pc_provider_settings")?.apply {
             isVisible = HasConfigProvider
@@ -1435,6 +1443,9 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         backupLoadingDialog = null
     }
 
+    /**
+     * Refreshes the settings screen title, labels, visibility, and preference values when the fragment resumes.
+     */
     override fun onResume() {
         super.onResume()
         applyScreenTitle()
@@ -1472,6 +1483,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         findPreference<SwitchPreference>("FORCE_EXTRA_BUFFERING")?.isChecked = UserPreferences.forceExtraBuffering
         findPreference<SwitchPreference>("PLAYER_GESTURES")?.isChecked = UserPreferences.playerGestures
         findPreference<SwitchPreference>("KEEP_SCREEN_ON_WHEN_PAUSED")?.isChecked = UserPreferences.keepScreenOnWhenPaused
+        findPreference<SwitchPreference>("SUBTITLES_OFF_BY_DEFAULT")?.isChecked = UserPreferences.subtitlesOffByDefault
         findPreference<SwitchPreferenceCompat>("ENABLE_TMDB")?.isChecked = UserPreferences.enableTmdb
         updateParentalControlPreferenceState()
     }
