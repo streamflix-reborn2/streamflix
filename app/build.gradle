@@ -17,6 +17,9 @@ android {
 
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
 }
 
 android {
@@ -33,6 +36,7 @@ android {
         targetSdk 35
         versionCode 158
         versionName "1.7.229"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField "String", "APP_LAYOUT", "\"${properties.getProperty("APP_LAYOUT")}\""
         buildConfigField "String", "TMDB_API_KEY", "\"${properties.getProperty("TMDB_API_KEY")}\""
@@ -89,6 +93,10 @@ android {
     buildFeatures {
         viewBinding true
         buildConfig true
+    }
+
+    lint {
+        baseline = file("lint-baseline.xml")
     }
 }
 
