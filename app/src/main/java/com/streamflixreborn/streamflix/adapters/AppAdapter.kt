@@ -814,7 +814,7 @@ class AppAdapter(
     }
 
     private fun Item.baseIdentityKey(): String = when (this) {
-        is Category -> "category:${name}"
+        is Category -> "category:$stableKey"
         is Episode -> "episode:${id}"
         is Genre -> "genre:${id}"
         is Movie -> "movie:${id}"

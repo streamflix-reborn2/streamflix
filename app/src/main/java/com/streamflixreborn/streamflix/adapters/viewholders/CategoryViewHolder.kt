@@ -95,7 +95,12 @@ class CategoryViewHolder(
         onMovieClick: ((Movie) -> Unit)?,
         onTvShowClick: ((TvShow) -> Unit)?
     ) {
-        binding.tvCategoryTitle.text = category.name
+        val isEmpty = category.list.isEmpty()
+        binding.tvCategoryTitle.apply {
+            text = category.name
+            isFocusable = isEmpty
+            isFocusableInTouchMode = isEmpty
+        }
         binding.hgvCategory.apply {
             setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT)
 
@@ -107,7 +112,7 @@ class CategoryViewHolder(
             }
             setItemSpacing(category.itemSpacing)
 
-            isFocusable = true
+            isFocusable = !isEmpty
             descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
         }
     }

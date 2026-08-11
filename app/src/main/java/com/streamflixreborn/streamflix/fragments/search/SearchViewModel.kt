@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 // DEFINICIONES DE ESTADO Y RESULTADOS (Fuera de la clase para mejor acceso)
 sealed class State {
@@ -172,18 +174,11 @@ class SearchViewModel(database: AppDatabase) : ViewModel() {
         _state.emit(State.SuccessGlobalSearching(initialResults))
 
         val mutableResults = initialResults.toMutableList()
-
-        val stateComparator = compareBy<ProviderResult> { providerResult ->
-            when (val state = providerResult.state) {
-                is ProviderResult.State.Success -> if (state.results.isNotEmpty()) 1 else 3
-                is ProviderResult.State.Loading -> 2
-                is ProviderResult.State.Error -> 4
-            }
-        }
+        val resultsMutex = Mutex()
 
         targetProviders.forEachIndexed { index, provider ->
             launch {
-                try {
+                val providerResult = try {
                     val results = ParentalControlUtils.filterItems(provider.search(query).onEach { item ->
                         // ========= ¡AQUÍ ESTÁ LA MAGIA! =========
                         // Le ponemos el sello a cada resultado
@@ -193,13 +188,16 @@ class SearchViewModel(database: AppDatabase) : ViewModel() {
                         }
                         // =======================================
                     })
-                    mutableResults[index] = ProviderResult(provider, ProviderResult.State.Success(results))
+                    ProviderResult(provider, ProviderResult.State.Success(results))
                 } catch (e: Exception) {
                     Log.e("SearchViewModel", "searchGlobal for ${provider.name}: ", e)
-                    mutableResults[index] = ProviderResult(provider, ProviderResult.State.Error(e))
+                    ProviderResult(provider, ProviderResult.State.Error(e))
                 }
 
-                _state.emit(State.SuccessGlobalSearching(mutableResults.sortedWith(stateComparator)))
+                resultsMutex.withLock {
+                    mutableResults[index] = providerResult
+                    _state.emit(State.SuccessGlobalSearching(mutableResults.toList()))
+                }
             }
         }
     }

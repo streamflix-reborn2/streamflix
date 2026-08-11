@@ -5,6 +5,7 @@ import com.streamflixreborn.streamflix.adapters.AppAdapter
 class Category(
     var name: String,
     val list: List<AppAdapter.Item>,
+    val stableKey: String = name,
 ) : AppAdapter.Item {
 
     var selectedIndex: Int = 0
@@ -17,9 +18,11 @@ class Category(
     fun copy(
         name: String = this.name,
         list: List<AppAdapter.Item> = this.list,
+        stableKey: String = this.stableKey,
     ) = Category(
         name,
         list,
+        stableKey,
     )
 
     override fun equals(other: Any?): Boolean {
@@ -30,6 +33,7 @@ class Category(
 
         if (name != other.name) return false
         if (list != other.list) return false
+        if (stableKey != other.stableKey) return false
         if (selectedIndex != other.selectedIndex) return false
         if (itemSpacing != other.itemSpacing) return false
         if (!::itemType.isInitialized || !other::itemType.isInitialized) return false
@@ -39,6 +43,7 @@ class Category(
     override fun hashCode(): Int {
         var result = name.hashCode()
         result = 31 * result + list.hashCode()
+        result = 31 * result + stableKey.hashCode()
         result = 31 * result + selectedIndex
         result = 31 * result + itemSpacing
         result = 31 * result + (if (::itemType.isInitialized) itemType.hashCode() else 0)

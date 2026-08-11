@@ -261,7 +261,8 @@ class SearchMobileFragment : Fragment() {
 
             val header = Category(
                 name = headerTitle,
-                list = emptyList()
+                list = emptyList(),
+                stableKey = "global-search:${providerResult.provider.name}",
             ).apply {
                 itemType = AppAdapter.Type.CATEGORY_MOBILE_ITEM
             }
