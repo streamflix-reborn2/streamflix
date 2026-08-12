@@ -37,7 +37,7 @@ open class FilemoonExtractor : Extractor() {
         val currentDomain = Regex("""(https?://[^/]+)""").find(link)?.groupValues?.get(1)
             ?: throw Exception("Could not extract Base URL")
 
-        Log.i("StreamFlixES", "[Filemoon] Extraction started for: $link")
+        Log.i("StreamFlixES", "[Filemoon] Extraction started")
 
         // 1. Details
         val detailsUrl = "$currentDomain/api/videos/$videoId/embed/details"

@@ -103,6 +103,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import okhttp3.internal.userAgent
 import java.util.Locale
 import com.streamflixreborn.streamflix.extractors.TokenManager
@@ -984,7 +985,7 @@ class PlayerMobileFragment : Fragment() {
                 
                 if (extractedUrl != null) {
                     sourceUri = extractedUrl.toUri()
-                    Log.i("ExternalPlayer", "Link reale estratto: $sourceUri")
+                    Log.i("ExternalPlayer", "Playlist source extracted")
                 } else {
                     try {
                         val file = File(requireContext().cacheDir, "stream.m3u8")
@@ -998,7 +999,7 @@ class PlayerMobileFragment : Fragment() {
                 sourceUri = initialSource.toUri()
             }
 
-            Log.i("ExternalPlayer", "Avvio intent con URI: $sourceUri e MIME: $mimeType")
+            Log.i("ExternalPlayer", "Launching chooser with MIME: $mimeType")
 
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(sourceUri, mimeType)
@@ -1509,6 +1510,8 @@ class PlayerMobileFragment : Fragment() {
         var tokenLogged = false
         val okHttpClientBuilder = NetworkClient.default.newBuilder()
         if (currentRestrictToPublicNetwork) {
+            okHttpClientBuilder.interceptors().removeAll { it is HttpLoggingInterceptor }
+            okHttpClientBuilder.networkInterceptors().removeAll { it is HttpLoggingInterceptor }
             okHttpClientBuilder
                 .connectionPool(ConnectionPool())
                 .dns(PublicPlaybackDns(DnsResolver.doh))
@@ -1529,7 +1532,7 @@ class PlayerMobileFragment : Fragment() {
                             tokenLogged = true
                         }
                     } else {
-                        android.util.Log.w("TokenManager", "[MOBILE-INTERCEPTOR] maintainToken=true but latestQuery is null! URL: ${request.url.host}")
+                        android.util.Log.w("TokenManager", "[MOBILE-INTERCEPTOR] maintainToken=true but latestQuery is null")
                     }
                 }
                 

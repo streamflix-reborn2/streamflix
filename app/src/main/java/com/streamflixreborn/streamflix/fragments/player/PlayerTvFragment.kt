@@ -1101,7 +1101,7 @@ class PlayerTvFragment : Fragment() {
 
                     if (extractedUrl != null) {
                         sourceUri = extractedUrl.toUri()
-                        Log.i("ExternalPlayer", "Link reale estratto TV: $sourceUri")
+                        Log.i("ExternalPlayer", "TV playlist source extracted")
                     } else {
                         try {
                             val file = File(requireContext().cacheDir, "stream.m3u8")
@@ -1123,7 +1123,7 @@ class PlayerTvFragment : Fragment() {
                     sourceUri = initialSource.toUri()
                 }
 
-                Log.i("ExternalPlayer", "Avvio intent TV con URI: $sourceUri e MIME: $mimeType")
+                Log.i("ExternalPlayer", "Launching TV chooser with MIME: $mimeType")
 
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(sourceUri, mimeType)
@@ -1752,7 +1752,7 @@ class PlayerTvFragment : Fragment() {
                                 tokenLogged = true
                             }
                         } else {
-                            android.util.Log.w("TokenManager", "[TV-INTERCEPTOR] maintainToken=true but latestQuery is null! URL: ${request.url.host}")
+                            android.util.Log.w("TokenManager", "[TV-INTERCEPTOR] maintainToken=true but latestQuery is null")
                         }
                     }
                     

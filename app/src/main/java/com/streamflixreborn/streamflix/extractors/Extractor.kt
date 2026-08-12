@@ -43,7 +43,7 @@ internal suspend fun dispatchExtraction(
     candidates: Iterable<Extractor>,
 ): Video {
     val extractor = selectExtractor(link, server, candidates)
-        ?: throw Exception("No extractors found for URL: $link")
+        ?: throw Exception("No extractors found for supplied link")
     return extractor.extract(link, server)
 }
 
@@ -198,7 +198,7 @@ abstract class Extractor {
                         }
 
                     if (redirectUrl.startsWith("http")) {
-                        Log.d("Extractor", "Universal Bridge resolved: $link -> $redirectUrl")
+                        Log.d("Extractor", "Universal Bridge resolved redirect")
                         finalLink = redirectUrl
                     }
                 } catch (e: Exception) {

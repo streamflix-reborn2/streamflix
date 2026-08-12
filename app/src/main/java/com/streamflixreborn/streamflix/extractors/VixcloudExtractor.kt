@@ -85,7 +85,7 @@ class VixcloudExtractor(
     }
 
     private suspend fun extractOnce(link: String): Video {
-        Log.d("VixcloudDebug", "Extracting $link language=$preferredLanguage")
+        Log.d("VixcloudDebug", "Extracting language=$preferredLanguage")
 
         val uri = link.toHttpUrlOrNull() ?: throw IOException("Invalid Vixcloud link")
         val currentMainUrl = "${uri.scheme}://${uri.host}/"
