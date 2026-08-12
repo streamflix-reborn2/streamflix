@@ -69,8 +69,6 @@ class VixSrcExtractor : Extractor() {
             service.getSource(currentEmbedPath)
         }
 
-        // VixSrc occasionally injects analytics/challenge scripts before the player script. Parse the
-        // complete inline script set so metadata discovery is independent from DOM script ordering.
         val scriptText = source.body()
             .select("script")
             .map { it.data() }
@@ -83,7 +81,7 @@ class VixSrcExtractor : Extractor() {
         val finalUrl = playlistMetadata.playlistUrl
         val finalHeaders = linkedMapOf(
             "Referer" to "$mainUrl/$currentEmbedPath",
-            "User-Agent" to NetworkClient.USER_AGENT,
+            "User-Agent" to VIXSRC_USER_AGENT,
         )
 
         val client = NetworkClient.default.newBuilder()
@@ -224,6 +222,11 @@ class VixSrcExtractor : Extractor() {
             type = MimeTypes.APPLICATION_M3U8,
             headers = finalHeaders,
         )
+    }
+
+    companion object {
+        private const val VIXSRC_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
 
     private interface VixSrcExtractorService {
