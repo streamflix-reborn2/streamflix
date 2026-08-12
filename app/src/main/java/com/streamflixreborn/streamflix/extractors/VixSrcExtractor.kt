@@ -75,44 +75,8 @@ class VixSrcExtractor : Extractor() {
         }
         val scriptText = source.body().selectFirst("script")?.data() ?: ""
         
-        val videoId = scriptText
-            .substringAfter("window.video = {", "")
-            .substringAfter("id: '", "")
-            .substringBefore("',", "")
-            .trim()
-
-        val token = scriptText
-            .substringAfter("window.masterPlaylist", "")
-            .substringAfter("'token': '", "")
-            .substringBefore("',", "")
-            .trim()
-
-        val expires = scriptText
-            .substringAfter("window.masterPlaylist", "")
-            .substringAfter("'expires': '", "")
-            .substringBefore("',", "")
-            .trim()
-
-        val hasBParam = scriptText
-            .substringAfter("url:", "")
-            .substringBefore(",", "")
-            .contains("b=1")
-
-        val canPlayFHD = scriptText.contains("window.canPlayFHD = true")
-
-        val masterParams = mutableMapOf<String, String>()
-        masterParams["token"] = token
-        masterParams["expires"] = expires
-
-        if (hasBParam) masterParams["b"] = "1"
-        if (canPlayFHD) masterParams["h"] = "1"
-        masterParams["lang"] = providerLang
-
-        val baseUrl = "https://vixsrc.to/playlist/${videoId}"
-        val httpUrlBuilder = baseUrl.toHttpUrlOrNull()?.newBuilder()
-            ?: throw IllegalArgumentException("Invalid base URL")
-        masterParams.forEach { (key, value) -> httpUrlBuilder.addQueryParameter(key, value) }
-        val finalUrl = httpUrlBuilder.build().toString()
+        val playlistMetadata = parseVixSrcPlaylistMetadata(scriptText, providerLang)
+        val finalUrl = playlistMetadata.playlistUrl
 
         val finalHeaders = mutableMapOf("Referer" to "$mainUrl/$currentEmbedPath", "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         
