@@ -129,6 +129,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getMovie(id: String): Movie {
         syncDomainPreference()
         movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
+        warmHomeForMetadata()
         return mutexFor(id).withLock {
             movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
@@ -142,6 +143,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getTvShow(id: String): TvShow {
         syncDomainPreference()
         tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
+        warmHomeForMetadata()
         return mutexFor(id).withLock {
             tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
@@ -155,6 +157,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getEpisodesBySeason(seasonId: String): List<Episode> {
         syncDomainPreference()
         seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let { return it.value }
+        warmHomeForMetadata()
         return mutexFor(seasonId).withLock {
             seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let {
                 return@withLock it.value
@@ -198,6 +201,19 @@ class OptimizedStreamingCommunityProvider(
     /** Exposed for settings screens/future callers; normal requests self-sync automatically. */
     suspend fun rebuildService() {
         performRecovery("manual", force = true)
+    }
+
+    /**
+     * Detail/season calls in HomeViewModel can arrive while the first home request is still building
+     * StreamingCommunity's Inertia version. Wait for that one single-flight request rather than
+     * allowing every detail coroutine to bootstrap the version independently.
+     */
+    private suspend fun warmHomeForMetadata() {
+        if (homeCache != null) return
+        runCatching { getHome() }
+            .onFailure { error ->
+                Log.d(TAG, "Home warm-up unavailable; continuing metadata request: ${error.message}")
+            }
     }
 
     private fun shapeHomeForLayout(categories: List<Category>): List<Category> {
