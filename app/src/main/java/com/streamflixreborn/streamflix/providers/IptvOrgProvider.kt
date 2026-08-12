@@ -57,17 +57,27 @@ object IptvOrgProvider : IptvProvider {
     )
 
     private fun createId(channel: M3UChannel): String {
-        val rawId = "${channel.url}|${channel.name}|${channel.logo ?: ""}|${channel.userAgent ?: ""}"
-        return Base64.encodeToString(rawId.toByteArray(), Base64.NO_WRAP)
+        val payload = encodeM3uPlaybackIdentity(
+            M3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = null,
+            ),
+        )
+        return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
 
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") return Triple(id, "", "")
 
         return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            Triple(parts[0], parts[1], parts.getOrNull(2) ?: "")
+            val identity = decodeM3uPlaybackIdentity(
+                payload = String(Base64.decode(id, Base64.DEFAULT)),
+                legacyFieldCount = 4,
+            ) ?: return Triple(id, "Canal Desconocido", "")
+            Triple(identity.url, identity.name, identity.logo.orEmpty())
         } catch (e: Exception) {
             Triple(id, "Canal Desconocido", "")
         }
@@ -75,9 +85,10 @@ object IptvOrgProvider : IptvProvider {
 
     private fun getUAFromId(id: String): String? {
         return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            if (parts.size >= 4 && parts[3].isNotEmpty()) parts[3] else null
+            decodeM3uPlaybackIdentity(
+                payload = String(Base64.decode(id, Base64.DEFAULT)),
+                legacyFieldCount = 4,
+            )?.userAgent
         } catch (e: Exception) { null }
     }
 

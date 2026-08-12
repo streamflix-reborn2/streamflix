@@ -53,8 +53,16 @@ object PlutoTvEsProvider : IptvProvider {
     )
 
     private fun createId(channel: M3UChannel): String {
-        val rawId = "${channel.url}|${channel.name}|${channel.logo ?: ""}|${channel.userAgent ?: ""}|${channel.referrer ?: ""}"
-        return Base64.encodeToString(rawId.toByteArray(), Base64.NO_WRAP)
+        val payload = encodeM3uPlaybackIdentity(
+            M3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            ),
+        )
+        return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
 
     private fun decodeId(id: String): Triple<String, String, String> {
@@ -62,9 +70,9 @@ object PlutoTvEsProvider : IptvProvider {
             return Triple(id, "", "")
         }
         return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            Triple(parts[0], parts[1], parts.getOrNull(2) ?: "")
+            val identity = decodeM3uPlaybackIdentity(String(Base64.decode(id, Base64.DEFAULT)))
+                ?: return Triple(id, "Canal Desconocido", "")
+            Triple(identity.url, identity.name, identity.logo.orEmpty())
         } catch (e: Exception) {
             Triple(id, "Canal Desconocido", "")
         }
@@ -72,11 +80,11 @@ object PlutoTvEsProvider : IptvProvider {
 
     private fun getMetadataFromId(id: String): Map<String, String?> {
         return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
+            val identity = decodeM3uPlaybackIdentity(String(Base64.decode(id, Base64.DEFAULT)))
+                ?: return emptyMap()
             mapOf(
-                "ua" to parts.getOrNull(3).takeIf { it?.isNotEmpty() == true },
-                "referer" to parts.getOrNull(4).takeIf { it?.isNotEmpty() == true }
+                "ua" to identity.userAgent,
+                "referer" to identity.referrer,
             )
         } catch (e: Exception) { emptyMap() }
     }
