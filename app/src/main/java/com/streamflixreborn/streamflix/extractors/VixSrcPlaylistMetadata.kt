@@ -19,15 +19,15 @@ internal fun parseVixSrcPlaylistMetadata(
     val playlistObject = extractAssignedObject(scriptText, "masterPlaylist")
         ?: throw VixSrcMetadataException("window.masterPlaylist is missing")
 
-    val videoId = findStringProperty(videoObject, "id")
+    val videoId = findTopLevelStringProperty(videoObject, "id")
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: throw VixSrcMetadataException("video id is missing")
-    val token = findStringProperty(playlistObject, "token")
+    val token = findTopLevelStringProperty(playlistObject, "token")
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: throw VixSrcMetadataException("playlist token is missing")
-    val expires = findStringProperty(playlistObject, "expires")
+    val expires = findTopLevelStringProperty(playlistObject, "expires")
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: throw VixSrcMetadataException("playlist expiry is missing")
@@ -51,12 +51,94 @@ internal fun parseVixSrcPlaylistMetadata(
     return VixSrcPlaylistMetadata(playlistUrl = url.build().toString())
 }
 
-private fun findStringProperty(objectBody: String, property: String): String? {
+private fun findTopLevelStringProperty(objectBody: String, property: String): String? {
     val escaped = Regex.escape(property)
-    return Regex(
-        """(?:^|[,\s])(?:['\"]$escaped['\"]|$escaped)\s*:\s*(['\"])(.*?)\1""",
+    val propertyRegex = Regex(
+        """^\s*(?:['\"]$escaped['\"]|$escaped)\s*:\s*(['\"])(.*?)\1\s*$""",
         setOf(RegexOption.DOT_MATCHES_ALL),
-    ).find(objectBody)?.groupValues?.get(2)
+    )
+
+    return splitTopLevelFields(objectBody)
+        .asSequence()
+        .mapNotNull { field -> propertyRegex.matchEntire(field)?.groupValues?.get(2) }
+        .firstOrNull()
+}
+
+private fun splitTopLevelFields(objectBody: String): List<String> {
+    val fields = mutableListOf<String>()
+    var start = 0
+    var braceDepth = 0
+    var bracketDepth = 0
+    var parenDepth = 0
+    var quote: Char? = null
+    var escaped = false
+    var lineComment = false
+    var blockComment = false
+    var index = 0
+
+    while (index < objectBody.length) {
+        val char = objectBody[index]
+        val next = objectBody.getOrNull(index + 1)
+
+        if (lineComment) {
+            if (char == '\n' || char == '\r') lineComment = false
+            index++
+            continue
+        }
+        if (blockComment) {
+            if (char == '*' && next == '/') {
+                blockComment = false
+                index += 2
+            } else {
+                index++
+            }
+            continue
+        }
+        if (quote != null) {
+            if (escaped) {
+                escaped = false
+            } else if (char == '\\') {
+                escaped = true
+            } else if (char == quote) {
+                quote = null
+            }
+            index++
+            continue
+        }
+
+        if (char == '/' && next == '/') {
+            lineComment = true
+            index += 2
+            continue
+        }
+        if (char == '/' && next == '*') {
+            blockComment = true
+            index += 2
+            continue
+        }
+        if (char == '\'' || char == '"' || char == '`') {
+            quote = char
+            index++
+            continue
+        }
+
+        when (char) {
+            '{' -> braceDepth++
+            '}' -> braceDepth--
+            '[' -> bracketDepth++
+            ']' -> bracketDepth--
+            '(' -> parenDepth++
+            ')' -> parenDepth--
+            ',' -> if (braceDepth == 0 && bracketDepth == 0 && parenDepth == 0) {
+                fields += objectBody.substring(start, index)
+                start = index + 1
+            }
+        }
+        index++
+    }
+
+    fields += objectBody.substring(start)
+    return fields
 }
 
 private fun hasMatchingPlaylistFlag(
