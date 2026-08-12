@@ -15,6 +15,8 @@ data class Video(
     val restrictToPublicNetwork: Boolean = false,
 ) : Serializable {
 
+    fun canUseExternalPlayer(): Boolean = !restrictToPublicNetwork
+
     sealed class Type : Parcelable, Serializable {
         @Parcelize
         data class Movie(

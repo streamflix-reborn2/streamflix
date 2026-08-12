@@ -1083,7 +1083,9 @@ class PlayerTvFragment : Fragment() {
                     .build()
             )
 
+            binding.pvPlayer.controller.binding.btnExoExternalPlayer.isEnabled = video.canUseExternalPlayer()
             binding.pvPlayer.controller.binding.btnExoExternalPlayer.setOnClickListener {
+                if (!video.canUseExternalPlayer()) return@setOnClickListener
                 val videoTitle = when (val type = args.videoType) {
                     is Video.Type.Movie -> type.title
                     is Video.Type.Episode -> "${type.tvShow.title} • S${type.season.number} E${type.number}"

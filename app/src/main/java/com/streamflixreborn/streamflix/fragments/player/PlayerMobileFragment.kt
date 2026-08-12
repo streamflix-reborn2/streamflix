@@ -966,7 +966,9 @@ class PlayerMobileFragment : Fragment() {
                 .build()
         )
 
+        binding.pvPlayer.controller.binding.btnExoExternalPlayer.isEnabled = video.canUseExternalPlayer()
         binding.pvPlayer.controller.binding.btnExoExternalPlayer.setOnClickListener {
+            if (!video.canUseExternalPlayer()) return@setOnClickListener
             isIgnoringPip = true
             
             val videoTitle = when (val type = args.videoType) {
