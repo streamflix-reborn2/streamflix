@@ -50,6 +50,10 @@ class M3uPlaybackHeadersTest {
         )
     }
 
+    @Test fun `playback identity decoder rejects overflowing lengths`() {
+        assertNull(decodeM3uPlaybackIdentity("m3u1;2147483647:x"))
+    }
+
     @Test fun `preserves user agent and referrer required by playlist`() {
         assertEquals(
             mapOf(

@@ -55,7 +55,7 @@ internal fun decodeM3uPlaybackIdentity(
         if (length == -1) {
             fields.add(null)
         } else {
-            if (length < 0 || position + length > payload.length) return null
+            if (length < 0 || length > payload.length - position) return null
             fields.add(payload.substring(position, position + length))
             position += length
         }
