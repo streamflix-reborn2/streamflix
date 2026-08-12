@@ -156,6 +156,9 @@ open class VidplayExtractor : Extractor() {
         @Headers(
             "Accept: application/json, text/javascript, */*; q=0.01",
             "X-Requested-With: XMLHttpRequest",
+            "Sec-Fetch-Dest: empty",
+            "Sec-Fetch-Mode: cors",
+            "Sec-Fetch-Site: same-origin",
         )
         suspend fun getSources(
             @Url url: String,
