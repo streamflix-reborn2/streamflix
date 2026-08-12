@@ -221,7 +221,11 @@ object PlutoTvArProvider : IptvProvider {
         meta["ua"]?.let { Log.d(TAG, "🛡️ Header UA detectado en M3U: $it") }
         meta["referer"]?.let { Log.d(TAG, "🛡️ Header Referer detectado en M3U: $it") }
 
-        return Video(source = url, subtitles = emptyList())
+        return m3uPlaybackVideo(
+            source = url,
+            userAgent = meta["ua"],
+            referrer = meta["referer"],
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {

@@ -218,7 +218,11 @@ object IptvSpainProvider : IptvProvider {
         meta["ua"]?.let { Log.d(TAG, "🛡️ Header UA: $it") }
         meta["referer"]?.let { Log.d(TAG, "🛡️ Header Referer: $it") }
 
-        return Video(source = url, subtitles = emptyList())
+        return m3uPlaybackVideo(
+            source = url,
+            userAgent = meta["ua"],
+            referrer = meta["referer"],
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {

@@ -204,7 +204,11 @@ object IptvOrgProvider : IptvProvider {
         val (url, _, _) = decodeId(server.id)
         val customUA = getUAFromId(server.id)
         Log.d(TAG, "🎬 Play: $url | UA: $customUA")
-        return Video(source = url, subtitles = emptyList())
+        return m3uPlaybackVideo(
+            source = url,
+            userAgent = customUA,
+            referrer = null,
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {
