@@ -40,15 +40,16 @@ class VixcloudExtractor(
 
         private val retrofitCache = ConcurrentHashMap<String, VixcloudExtractorService>()
 
-        private fun getService(baseUrl: String): VixcloudExtractorService =
-            retrofitCache.computeIfAbsent(baseUrl) {
-                Retrofit.Builder()
-                    .baseUrl(baseUrl)
-                    .addConverterFactory(JsoupConverterFactory.create())
-                    .client(client)
-                    .build()
-                    .create(VixcloudExtractorService::class.java)
-            }
+        private fun getService(baseUrl: String): VixcloudExtractorService {
+            retrofitCache[baseUrl]?.let { return it }
+            val created = Retrofit.Builder()
+                .baseUrl(baseUrl)
+                .addConverterFactory(JsoupConverterFactory.create())
+                .client(client)
+                .build()
+                .create(VixcloudExtractorService::class.java)
+            return retrofitCache.putIfAbsent(baseUrl, created) ?: created
+        }
     }
 
     private class VixcloudHttpException(
@@ -166,7 +167,6 @@ class VixcloudExtractor(
     ): Map<String, String> {
         val playlistHttpUrl = playlistUrl.toHttpUrlOrNull()
         return linkedMapOf<String, String>().apply {
-            // Vixcloud's source page is a stronger hot-link identity than a bare site root.
             put("Referer", sourcePageUrl)
             put("Origin", currentMainUrl.trimEnd('/'))
             put("User-Agent", USER_AGENT)
@@ -303,10 +303,6 @@ class VixcloudExtractor(
         return code in setOf(401, 403, 404, 410, 429, 500, 502, 503, 504)
     }
 
-    /**
-     * StreamingCommunity's iframe endpoint is the authority for a fresh Vixcloud source. A stale
-     * Vixcloud URL can therefore recover locally without waiting for Media3 retries or a full UI reload.
-     */
     private fun refreshLinkFromReferer(): String? {
         val referer = customReferer?.takeIf { it.isNotBlank() } ?: return null
         val refererUrl = referer.toHttpUrlOrNull() ?: return null
