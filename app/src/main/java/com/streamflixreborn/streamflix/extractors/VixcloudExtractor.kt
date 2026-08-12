@@ -66,8 +66,7 @@ class VixcloudExtractor(
                 return extractOnce(currentLink)
             } catch (e: Exception) {
                 lastError = e
-                val recoverable = isRecoverableSourceError(e)
-                if (attempt == 0 && recoverable) {
+                if (attempt == 0 && isRecoverableSourceError(e)) {
                     Log.w(
                         "VixcloudDebug",
                         "Stale/protected Vixcloud source detected (${e.message}); refreshing StreamingCommunity iframe",
@@ -295,12 +294,25 @@ class VixcloudExtractor(
     }
 
     private fun isRecoverableSourceError(error: Exception): Boolean {
+        if (error is VixcloudMetadataException) return true
+
         val code = when (error) {
             is VixcloudHttpException -> error.statusCode
             is HttpException -> error.code()
             else -> null
         }
-        return code in setOf(401, 403, 404, 410, 429, 500, 502, 503, 504)
+        if (code in setOf(401, 403, 404, 408, 410, 425, 429, 500, 502, 503, 504)) {
+            return true
+        }
+
+        // Protection/challenge pages are sometimes returned as HTTP 200. If the manifest is empty
+        // or not HLS, refresh the authoritative StreamingCommunity iframe once before giving up.
+        if (error is IOException) {
+            val message = error.message.orEmpty()
+            return message.contains("playlist response", ignoreCase = true) ||
+                message.contains("embed page contains no inline scripts", ignoreCase = true)
+        }
+        return false
     }
 
     private fun refreshLinkFromReferer(): String? {
