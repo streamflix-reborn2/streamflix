@@ -7,6 +7,11 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.util.Base64
 
 class M3uPlaybackHeadersTest {
@@ -268,6 +273,55 @@ class M3uPlaybackHeadersTest {
             assertNull(
                 resolvePublicPlaybackRedirect("https://public.example/live/master.m3u8", location),
             )
+        }
+    }
+
+    @Test fun `network interceptor follows public redirect and blocks private redirect`() {
+        val loopbackDns = object : Dns {
+            override fun lookup(hostname: String) =
+                listOf(java.net.InetAddress.getLoopbackAddress())
+        }
+
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "/public-segment.ts"),
+            )
+            server.enqueue(MockResponse().setResponseCode(200).setBody("public"))
+            server.start()
+
+            val client = OkHttpClient.Builder()
+                .dns(loopbackDns)
+                .addNetworkInterceptor(PublicPlaybackNetworkInterceptor)
+                .build()
+            val publicUrl = "http://public.example:${server.port}/master.m3u8"
+
+            client.newCall(Request.Builder().url(publicUrl).build()).execute().use { response ->
+                assertEquals(200, response.code)
+                assertEquals("public", response.body?.string())
+            }
+            assertEquals(2, server.requestCount)
+        }
+
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", "http://127.0.0.1/private"),
+            )
+            server.start()
+
+            val client = OkHttpClient.Builder()
+                .dns(loopbackDns)
+                .addNetworkInterceptor(PublicPlaybackNetworkInterceptor)
+                .build()
+            val publicUrl = "http://public.example:${server.port}/master.m3u8"
+
+            assertThrows(M3uPlaybackIdentityException::class.java) {
+                client.newCall(Request.Builder().url(publicUrl).build()).execute().close()
+            }
+            assertEquals(1, server.requestCount)
         }
     }
 
