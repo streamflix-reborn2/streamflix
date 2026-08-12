@@ -63,8 +63,8 @@ interface Provider {
             SflixProvider to ProviderSupport(movies = true, tvShows = true),
             FanpelisProvider to ProviderSupport(movies = true, tvShows = true),
             SerienStreamProvider to ProviderSupport(movies = false, tvShows = true),
-            StreamingCommunityProvider("it") to ProviderSupport(movies = true, tvShows = true),
-            StreamingCommunityProvider("en") to ProviderSupport(movies = true, tvShows = true),
+            OptimizedStreamingCommunityProvider("it") to ProviderSupport(movies = true, tvShows = true),
+            OptimizedStreamingCommunityProvider("en") to ProviderSupport(movies = true, tvShows = true),
             AnimeWorldProvider to ProviderSupport(movies = true, tvShows = true),
             MkissaProvider to ProviderSupport(movies = true, tvShows = true),
             AniWorldProvider to ProviderSupport(movies = false, tvShows = true),
@@ -130,7 +130,6 @@ interface Provider {
             VavooProvider("pl") to ProviderSupport(movies = false, tvShows = true)
         )
 
-        // Helper functions to check support
         fun supportsMovies(provider: Provider): Boolean {
             val support = providers[provider] ?: ProviderSupport(movies = true, tvShows = true)
             return support.movies
