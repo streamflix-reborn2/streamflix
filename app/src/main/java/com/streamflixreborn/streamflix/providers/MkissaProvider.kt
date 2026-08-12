@@ -41,8 +41,11 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
+import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.jvm.java
+import kotlin.text.format
 
 object MkissaProvider : Provider {
 
@@ -53,7 +56,7 @@ object MkissaProvider : Provider {
     private const val POPULAR_DAILY_HASH = "a0aca6827cc9a3ad7bc711da4d200a04adea8f1a7545dc418d5e92e74c3aad15"
     private const val POPULAR_HASH = "ac2c75884a11fca5707ce4ad10f2e3e2aae31e42af5e4d9c511a4a5e708e4c6d"
     private const val DETAIL_HASH = "043448386c7a686bc2aabfbb6b80f6074e795d350df48015023b079527b0848a"
-    private const val SOURCE_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
+    private const val SOURCE_HASH = "3010f32eeff683ff01456844eb7cf25a1e7c9ca4e925f417a240719ff7bfd971"
     private const val GENRE_HASH = "ff61a63ff776f334f80c1e6ad1aa49ef71eab831e235e5d6ec679eae5b83450f"
     private const val IMAGE_URL = "https://aln.youtube-anime.com"
     private const val DEFAULT_BUILD_ID = "45"
@@ -64,6 +67,9 @@ object MkissaProvider : Provider {
     private const val CRYPTO_API_URL_KEY = "api_url"
     private const val CRYPTO_BUCKET_MS = 5 * 60 * 1000L
     private const val CRYPTO_CONFIG_MAX_AGE_MS = 6 * 60 * 60 * 1000L
+    private const val CRYPTO_EPOCH_MS = 7 * 24 * 60 * 60 * 1000L
+    private const val CRYPTO_EPOCH_GRACE_MS = 24 * 60 * 60 * 1000L
+    private const val CRYPTO_CONTENT_LANE = "k7"
     private const val HOME_ROW_LIMIT = 20
     private const val HOME_TAG_LIMIT = 20
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -652,7 +658,9 @@ object MkissaProvider : Provider {
                 val extensions = JSONObject()
                     .put("persistedQuery", JSONObject().put("version", 1).put("sha256Hash", hash))
                 if (protectedQuery) {
-                    extensions.put("aaReq", createCryptoRequest(hash, bootstrap!!))
+                    extensions
+                        .put("k", CRYPTO_CONTENT_LANE)
+                        .put("aaReq", createCryptoRequest(hash, bootstrap!!))
                 }
 
                 val response = try {
@@ -822,9 +830,12 @@ object MkissaProvider : Provider {
     private fun createCryptoRequest(queryHash: String, bootstrap: CryptoBootstrap): String {
         val timestamp = System.currentTimeMillis() / CRYPTO_BUCKET_MS * CRYPTO_BUCKET_MS
         val iv = MessageDigest.getInstance("SHA-256")
-            .digest("${bootstrap.epoch}:${bootstrap.buildId}:$queryHash:$timestamp".toByteArray(Charsets.UTF_8))
+            .digest(
+                "${bootstrap.epoch}:${bootstrap.buildId}:$queryHash:$timestamp:$CRYPTO_CONTENT_LANE"
+                    .toByteArray(Charsets.UTF_8)
+            )
             .copyOfRange(0, 12)
-        val payload = """{"v":1,"ts":$timestamp,"epoch":${bootstrap.epoch},"buildId":"${bootstrap.buildId}","qh":"$queryHash"}"""
+        val payload = """{"v":1,"ts":$timestamp,"epoch":${bootstrap.epoch},"buildId":"${bootstrap.buildId}","qh":"$queryHash","k":"$CRYPTO_CONTENT_LANE"}"""
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
             Cipher.ENCRYPT_MODE,
@@ -912,23 +923,17 @@ object MkissaProvider : Provider {
             if (!response.isSuccessful) throw Exception("MKissa crypto bootstrap returned HTTP ${response.code}")
             response.body?.string()
         } ?: throw Exception("MKissa crypto bootstrap was empty")
-        val markerIndex = html.indexOf("window.__aaCrypto")
-        val valueStart = if (markerIndex >= 0) html.indexOf('=', markerIndex) else -1
-        val valueEnd = if (valueStart >= 0) html.indexOf(';', valueStart + 1) else -1
-        if (valueStart < 0 || valueEnd < 0) throw Exception("MKissa crypto bootstrap was not found")
-        val json = runCatching {
-            JSONObject(html.substring(valueStart + 1, valueEnd).trim())
-        }.getOrElse {
-            throw Exception("MKissa crypto bootstrap is invalid", it)
-        }
+        val bundleCrypto = fetchBundleCryptoConfig(html)
+            ?: throw Exception("MKissa crypto bundle config was not found")
+        val json = parseEmbeddedCryptoBootstrap(html)
+            ?: fetchRemoteCryptoBootstrap(bundleCrypto)
+            ?: throw Exception("MKissa crypto bootstrap was not found")
         val epoch = json.optLong("epoch", -1L)
         val switchAt = json.optLong("switchAt", 0L)
         val partB = json.optString("partB")
         if (epoch < 0 || switchAt <= 0 || partB.isBlank()) {
             throw Exception("MKissa crypto bootstrap is invalid")
         }
-        val bundleCrypto = fetchBundleCryptoConfig(html)
-            ?: throw Exception("MKissa crypto bundle config was not found")
         val mask = bundleCrypto.mask
         val buildId = bundleCrypto.buildId
         val encodedKey = Base64.decode(partB, Base64.DEFAULT)
@@ -945,6 +950,72 @@ object MkissaProvider : Provider {
             key = key,
             apiUrl = bundleCrypto.apiUrl
         )
+    }
+
+    private fun parseEmbeddedCryptoBootstrap(html: String): JSONObject? {
+        val markerIndex = html.indexOf("window.__aaCrypto")
+        val valueStart = if (markerIndex >= 0) html.indexOf('=', markerIndex) else -1
+        val valueEnd = if (valueStart >= 0) html.indexOf(';', valueStart + 1) else -1
+        if (valueStart < 0 || valueEnd < 0) return null
+        return runCatching {
+            JSONObject(html.substring(valueStart + 1, valueEnd).trim())
+        }.getOrNull()
+    }
+
+    private fun fetchRemoteCryptoBootstrap(bundleCrypto: BundleCryptoConfig): JSONObject? {
+        val endpoint = bundleCrypto.apiUrl.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.encodedPath("/client-crypto/v1/bootstrap")
+            ?.query(null)
+            ?.addQueryParameter("buildId", bundleCrypto.buildId)
+            ?.addQueryParameter("k", CRYPTO_CONTENT_LANE)
+            ?.build()
+            ?: return null
+        val now = System.currentTimeMillis()
+        val currentEpoch = now / CRYPTO_EPOCH_MS
+        val firstEpoch = if (now - currentEpoch * CRYPTO_EPOCH_MS < CRYPTO_EPOCH_GRACE_MS) {
+            currentEpoch - 1
+        } else {
+            currentEpoch
+        }
+        return sequenceOf(firstEpoch, currentEpoch)
+            .distinct()
+            .mapNotNull { epoch ->
+                runCatching {
+                    val bootToken = createCryptoBootToken(bundleCrypto, epoch)
+                    sourceResolverClient.newCall(
+                        Request.Builder()
+                            .url(endpoint)
+                            .header("Accept", "application/json")
+                            .header("User-Agent", "Mozilla/5.0")
+                            .header("Origin", "https://mkissa.to")
+                            .header("Referer", "https://mkissa.to/anime")
+                            .header("x-build-id", bundleCrypto.buildId)
+                            .header("x-aa-boot", bootToken)
+                            .build()
+                    ).execute().use { response ->
+                        if (!response.isSuccessful) return@use null
+                        response.body?.string()?.let(::JSONObject)
+                    }
+                }.getOrNull()
+            }
+            .firstOrNull { json ->
+                json.optString("partB").isNotBlank() &&
+                        json.optString("k", CRYPTO_CONTENT_LANE) == CRYPTO_CONTENT_LANE
+            }
+    }
+
+    private fun createCryptoBootToken(bundleCrypto: BundleCryptoConfig, epoch: Long): String {
+        val key = hmacSha256(bundleCrypto.mask, "aa-boot:${bundleCrypto.buildId}")
+        val payload = "${bundleCrypto.buildId}:mkissa:mkissa.to:$epoch:$CRYPTO_CONTENT_LANE"
+        return hmacSha256(key, payload).toHex()
+    }
+
+    private fun hmacSha256(key: ByteArray, value: String): ByteArray {
+        return Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(key, "HmacSHA256"))
+            doFinal(value.toByteArray(Charsets.UTF_8))
+        }
     }
 
     private fun fetchBundleCryptoConfig(html: String): BundleCryptoConfig? {
@@ -1028,12 +1099,213 @@ object MkissaProvider : Provider {
 
         val guardedLiterals = Regex(
             """[\"']([0-9a-fA-F]{64})[\"']\s*:\s*[\"']{2}\s*,\s*[A-Za-z_$][\w$]*\s*=.{0,160}?[\"'](\d+)[\"']\s*:\s*[\"']{2}"""
+        ).find(script)
+        if (guardedLiterals != null) {
+            return BundleCryptoConfig(
+                buildId = guardedLiterals.groupValues[2],
+                mask = guardedLiterals.groupValues[1].hexBytes() ?: return null,
+                apiUrl = apiUrl
+            )
+        }
+
+        return parseObfuscatedBundleCryptoConfig(script, apiUrl)
+    }
+
+    private fun parseObfuscatedBundleCryptoConfig(
+        script: String,
+        apiUrl: String
+    ): BundleCryptoConfig? {
+        val declaration = Regex(
+            """const\s+[A-Za-z_$][\w$]*=.{0,160}?\?[\"'](\d+)[\"']:[\"']{2},[A-Za-z_$][\w$]*=\[([^]]+)]"""
         ).find(script) ?: return null
-        return BundleCryptoConfig(
-            buildId = guardedLiterals.groupValues[2],
-            mask = guardedLiterals.groupValues[1].hexBytes() ?: return null,
-            apiUrl = apiUrl
+        val buildId = declaration.groupValues[1]
+        val encodedParts = declaration.groupValues[2]
+            .splitTopLevel(',')
+            .map { expression ->
+                Regex("""([A-Za-z_$][\w$]*)\(([^)]*)\)""")
+                    .findAll(expression)
+                    .map { call ->
+                        ObfuscatedCall(
+                            name = call.groupValues[1],
+                            arguments = call.groupValues[2]
+                                .split(',')
+                                .mapNotNull { it.trim().toIntOrNull() }
+                        )
+                    }
+                    .toList()
+            }
+        if (encodedParts.size != 4 || encodedParts.any { it.size != 2 }) return null
+
+        val stringTable = extractObfuscatedStringTable(script) ?: return null
+        val lookups = encodedParts.flatten().map { it.name }.distinct().associateWith { name ->
+            parseObfuscatedLookup(script, name) ?: return null
+        }
+        val rootName = lookups.values.map { it.rootName }.distinct().singleOrNull() ?: return null
+        val rootAdjustment = parseObfuscatedRootAdjustment(script, rootName) ?: return null
+
+        val encodedMask = stringTable.indices.asSequence().mapNotNull { rotation ->
+            decodeObfuscatedMask(
+                encodedParts = encodedParts,
+                lookups = lookups,
+                rootAdjustment = rootAdjustment,
+                stringTable = stringTable,
+                rotation = rotation
+            )
+        }.distinctBy { it.contentHashCode() }.singleOrNull() ?: return null
+
+        val buildSeed = ByteArray(32) { index ->
+            val buildByte = buildId[index % buildId.length].code
+            (buildByte xor ((index * 17 + 31) and 0xff)).toByte()
+        }
+        val mask = ByteArray(32) { index ->
+            val group = index / 8
+            val offset = index % 8
+            (encodedMask[index].toInt() xor
+                    buildSeed[index].toInt() xor
+                    ((group * 41 + offset * 7) and 0xff)).toByte()
+        }
+        return BundleCryptoConfig(buildId = buildId, mask = mask, apiUrl = apiUrl)
+    }
+
+    private fun decodeObfuscatedMask(
+        encodedParts: List<List<ObfuscatedCall>>,
+        lookups: Map<String, ObfuscatedLookup>,
+        rootAdjustment: Int,
+        stringTable: List<String>,
+        rotation: Int
+    ): ByteArray? {
+        val result = ByteArray(32)
+        encodedParts.forEachIndexed { partIndex, calls ->
+            val part = buildString {
+                calls.forEach { call ->
+                    val lookup = lookups[call.name] ?: return null
+                    val variables = lookup.parameters.zip(call.arguments).toMap()
+                    val input = IntegerExpression(lookup.argumentExpression, variables).parse()
+                        ?: return null
+                    val rawIndex = input - rootAdjustment + rotation
+                    val index = (rawIndex % stringTable.size + stringTable.size) % stringTable.size
+                    append(stringTable[index])
+                }
+            }
+            if (!part.matches(Regex("""[A-Za-z0-9+/]{11}="""))) return null
+            val bytes = runCatching { Base64.decode(part, Base64.DEFAULT) }
+                .getOrNull()
+                ?.takeIf { it.size == 8 }
+                ?: return null
+            bytes.copyInto(result, destinationOffset = partIndex * bytes.size)
+        }
+        return result
+    }
+
+    private fun parseObfuscatedLookup(script: String, name: String): ObfuscatedLookup? {
+        val match = Regex(
+            """function\s+${Regex.escape(name)}\(([^)]*)\)\{return\s+([A-Za-z_$][\w$]*)\(([^)]*)\)\}"""
+        ).find(script) ?: return null
+        return ObfuscatedLookup(
+            parameters = match.groupValues[1].split(',').map(String::trim),
+            rootName = match.groupValues[2],
+            argumentExpression = match.groupValues[3]
         )
+    }
+
+    private fun parseObfuscatedRootAdjustment(script: String, name: String): Int? {
+        val match = Regex(
+            """function\s+${Regex.escape(name)}\(([A-Za-z_$][\w$]*)(?:,[^)]*)?\)\{return\s+\1=\1-\(([^)]*)\),"""
+        ).find(script) ?: return null
+        return IntegerExpression(match.groupValues[2]).parse()
+    }
+
+    private fun extractObfuscatedStringTable(script: String): List<String>? {
+        val marker = listOf("\"aa-boo\"", "'aa-boo'")
+            .map { script.indexOf(it) }
+            .filter { it >= 0 }
+            .minOrNull()
+            ?: return null
+        val functionStart = script.lastIndexOf("function ", marker)
+        val arrayStart = script.indexOf("=[", functionStart).takeIf { it in 0 until marker }
+            ?.plus(1)
+            ?: return null
+        val arrayEnd = script.findClosingBracket(arrayStart) ?: return null
+        return script.substring(arrayStart + 1, arrayEnd).parseJavaScriptStrings()
+    }
+
+    private fun String.findClosingBracket(start: Int): Int? {
+        var depth = 0
+        var quote: Char? = null
+        var escaped = false
+        for (index in start until length) {
+            val char = this[index]
+            if (quote != null) {
+                if (escaped) escaped = false
+                else if (char == '\\') escaped = true
+                else if (char == quote) quote = null
+                continue
+            }
+            when (char) {
+                '\'', '"' -> quote = char
+                '[' -> depth++
+                ']' -> if (--depth == 0) return index
+            }
+        }
+        return null
+    }
+
+    private fun String.parseJavaScriptStrings(): List<String> {
+        val values = mutableListOf<String>()
+        var index = 0
+        while (index < length) {
+            val quote = this[index]
+            if (quote != '\'' && quote != '"') {
+                index++
+                continue
+            }
+            index++
+            val value = StringBuilder()
+            while (index < length && this[index] != quote) {
+                if (this[index] != '\\') {
+                    value.append(this[index++])
+                    continue
+                }
+                index++
+                if (index >= length) break
+                when (val escaped = this[index++]) {
+                    'n' -> value.append('\n')
+                    'r' -> value.append('\r')
+                    't' -> value.append('\t')
+                    'x', 'u' -> {
+                        val count = if (escaped == 'x') 2 else 4
+                        val end = (index + count).coerceAtMost(length)
+                        val decoded = substring(index, end).toIntOrNull(16)
+                        if (decoded != null && end - index == count) {
+                            value.append(decoded.toChar())
+                            index = end
+                        }
+                    }
+                    else -> value.append(escaped)
+                }
+            }
+            if (index < length && this[index] == quote) index++
+            values += value.toString()
+        }
+        return values
+    }
+
+    private fun String.splitTopLevel(separator: Char): List<String> {
+        val result = mutableListOf<String>()
+        var depth = 0
+        var start = 0
+        forEachIndexed { index, char ->
+            when (char) {
+                '(' -> depth++
+                ')' -> depth--
+                separator -> if (depth == 0) {
+                    result += substring(start, index)
+                    start = index + 1
+                }
+            }
+        }
+        result += substring(start)
+        return result
     }
 
     private fun parsePopular(response: JSONObject): List<TvShow> {
@@ -1501,6 +1773,98 @@ object MkissaProvider : Provider {
         val mask: ByteArray,
         val apiUrl: String
     )
+
+    private data class ObfuscatedCall(
+        val name: String,
+        val arguments: List<Int>
+    )
+
+    private data class ObfuscatedLookup(
+        val parameters: List<String>,
+        val rootName: String,
+        val argumentExpression: String
+    )
+
+    private class IntegerExpression(
+        private val value: String,
+        private val variables: Map<String, Int> = emptyMap()
+    ) {
+        private var position = 0
+
+        fun parse(): Int? = runCatching {
+            val result = parseSum()
+            skipWhitespace()
+            check(position == value.length)
+            result
+        }.getOrNull()
+
+        private fun parseSum(): Int {
+            var result = parseProduct()
+            while (true) {
+                skipWhitespace()
+                result = when (peek()) {
+                    '+' -> {
+                        position++
+                        result + parseProduct()
+                    }
+                    '-' -> {
+                        position++
+                        result - parseProduct()
+                    }
+                    else -> return result
+                }
+            }
+        }
+
+        private fun parseProduct(): Int {
+            var result = parseFactor()
+            while (true) {
+                skipWhitespace()
+                if (peek() != '*') return result
+                position++
+                result *= parseFactor()
+            }
+        }
+
+        private fun parseFactor(): Int {
+            skipWhitespace()
+            return when (peek()) {
+                '+' -> {
+                    position++
+                    parseFactor()
+                }
+                '-' -> {
+                    position++
+                    -parseFactor()
+                }
+                '(' -> {
+                    position++
+                    val result = parseSum()
+                    skipWhitespace()
+                    check(peek() == ')')
+                    position++
+                    result
+                }
+                else -> parseNumberOrVariable()
+            }
+        }
+
+        private fun parseNumberOrVariable(): Int {
+            val start = position
+            while (peek()?.let { it.isLetterOrDigit() || it == '_' || it == '$' } == true) {
+                position++
+            }
+            check(position > start)
+            val token = value.substring(start, position)
+            return token.toIntOrNull() ?: variables.getValue(token)
+        }
+
+        private fun skipWhitespace() {
+            while (peek()?.isWhitespace() == true) position++
+        }
+
+        private fun peek(): Char? = value.getOrNull(position)
+    }
 
     private class CryptoConfigRejectedException : Exception("MKissa rejected the crypto configuration")
 
