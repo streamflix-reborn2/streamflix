@@ -69,28 +69,21 @@ object IptvOrgProvider : IptvProvider {
         return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
 
+    private fun decodeIdentity(id: String): M3uPlaybackIdentity =
+        requireM3uPlaybackIdentityFromBase64(
+            encoded = id,
+            legacyFieldCount = 4,
+            decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+        )
+
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") return Triple(id, "", "")
 
-        return try {
-            val identity = decodeM3uPlaybackIdentity(
-                payload = String(Base64.decode(id, Base64.DEFAULT)),
-                legacyFieldCount = 4,
-            ) ?: return Triple(id, "Canal Desconocido", "")
-            Triple(identity.url, identity.name, identity.logo.orEmpty())
-        } catch (e: Exception) {
-            Triple(id, "Canal Desconocido", "")
-        }
+        val identity = decodeIdentity(id)
+        return Triple(identity.url, identity.name, identity.logo.orEmpty())
     }
 
-    private fun getUAFromId(id: String): String? {
-        return try {
-            decodeM3uPlaybackIdentity(
-                payload = String(Base64.decode(id, Base64.DEFAULT)),
-                legacyFieldCount = 4,
-            )?.userAgent
-        } catch (e: Exception) { null }
-    }
+    private fun getUAFromId(id: String): String? = decodeIdentity(id).userAgent
 
     private fun getAllChannels(): List<M3UChannel> {
         val now = System.currentTimeMillis()

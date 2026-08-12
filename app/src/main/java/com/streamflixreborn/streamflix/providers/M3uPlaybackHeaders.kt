@@ -11,6 +11,10 @@ internal data class M3uPlaybackIdentity(
 )
 
 private const val M3U_PLAYBACK_IDENTITY_PREFIX = "m3u1;"
+internal const val MAX_M3U_PLAYBACK_ID_LENGTH = 32 * 1024
+private const val MAX_M3U_PLAYBACK_PAYLOAD_LENGTH = 24 * 1024
+
+internal class M3uPlaybackIdentityException : Exception("Malformed M3U playback identity")
 
 internal fun encodeM3uPlaybackIdentity(identity: M3uPlaybackIdentity): String = buildString {
     append(M3U_PLAYBACK_IDENTITY_PREFIX)
@@ -70,6 +74,34 @@ internal fun decodeM3uPlaybackIdentity(
         referrer = fields[4],
     )
 }
+
+internal fun decodeM3uPlaybackIdentityFromBase64(
+    encoded: String,
+    legacyFieldCount: Int = 5,
+    decodeBase64: (String) -> ByteArray,
+): M3uPlaybackIdentity? {
+    if (encoded.length > MAX_M3U_PLAYBACK_ID_LENGTH) return null
+    val decodedBytes = try {
+        decodeBase64(encoded)
+    } catch (_: IllegalArgumentException) {
+        return null
+    }
+    if (decodedBytes.size > MAX_M3U_PLAYBACK_PAYLOAD_LENGTH) return null
+    return decodeM3uPlaybackIdentity(
+        payload = decodedBytes.toString(Charsets.UTF_8),
+        legacyFieldCount = legacyFieldCount,
+    )
+}
+
+internal fun requireM3uPlaybackIdentityFromBase64(
+    encoded: String,
+    legacyFieldCount: Int = 5,
+    decodeBase64: (String) -> ByteArray,
+): M3uPlaybackIdentity = decodeM3uPlaybackIdentityFromBase64(
+    encoded = encoded,
+    legacyFieldCount = legacyFieldCount,
+    decodeBase64 = decodeBase64,
+) ?: throw M3uPlaybackIdentityException()
 
 internal fun m3uPlaybackHeaders(
     userAgent: String?,

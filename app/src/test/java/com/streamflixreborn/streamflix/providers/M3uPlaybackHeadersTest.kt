@@ -1,8 +1,11 @@
 package com.streamflixreborn.streamflix.providers
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Test
+import java.util.Base64
 
 class M3uPlaybackHeadersTest {
     @Test fun `playback identity round trips delimiter bearing fields`() {
@@ -52,6 +55,33 @@ class M3uPlaybackHeadersTest {
 
     @Test fun `playback identity decoder rejects overflowing lengths`() {
         assertNull(decodeM3uPlaybackIdentity("m3u1;2147483647:x"))
+    }
+
+    @Test fun `oversized encoded identity is rejected before decoder allocation`() {
+        var decoderCalled = false
+
+        assertNull(
+            decodeM3uPlaybackIdentityFromBase64(
+                encoded = "A".repeat(MAX_M3U_PLAYBACK_ID_LENGTH + 1),
+                decodeBase64 = {
+                    decoderCalled = true
+                    ByteArray(0)
+                },
+            ),
+        )
+        assertFalse(decoderCalled)
+    }
+
+    @Test fun `base64 identity parser rejects malformed identity instead of returning raw id`() {
+        try {
+            requireM3uPlaybackIdentityFromBase64(
+                encoded = Base64.getEncoder().encodeToString("malformed".toByteArray()),
+                decodeBase64 = { Base64.getDecoder().decode(it) },
+            )
+            fail("Expected malformed identity to be rejected")
+        } catch (_: M3uPlaybackIdentityException) {
+            // Controlled failure.
+        }
     }
 
     @Test fun `preserves user agent and referrer required by playlist`() {

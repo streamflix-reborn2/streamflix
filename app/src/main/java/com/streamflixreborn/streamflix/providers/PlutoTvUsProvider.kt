@@ -65,28 +65,26 @@ object PlutoTvUsProvider : IptvProvider {
         return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
 
+    private fun decodeIdentity(id: String): M3uPlaybackIdentity =
+        requireM3uPlaybackIdentityFromBase64(
+            encoded = id,
+            decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+        )
+
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") {
             return Triple(id, "", "")
         }
-        return try {
-            val identity = decodeM3uPlaybackIdentity(String(Base64.decode(id, Base64.DEFAULT)))
-                ?: return Triple(id, "Canal Desconocido", "")
-            Triple(identity.url, identity.name, identity.logo.orEmpty())
-        } catch (e: Exception) {
-            Triple(id, "Canal Desconocido", "")
-        }
+        val identity = decodeIdentity(id)
+        return Triple(identity.url, identity.name, identity.logo.orEmpty())
     }
 
     private fun getMetadataFromId(id: String): Map<String, String?> {
-        return try {
-            val identity = decodeM3uPlaybackIdentity(String(Base64.decode(id, Base64.DEFAULT)))
-                ?: return emptyMap()
-            mapOf(
-                "ua" to identity.userAgent,
-                "referer" to identity.referrer,
-            )
-        } catch (e: Exception) { emptyMap() }
+        val identity = decodeIdentity(id)
+        return mapOf(
+            "ua" to identity.userAgent,
+            "referer" to identity.referrer,
+        )
     }
 
     private fun getAllChannels(): List<M3UChannel> {
