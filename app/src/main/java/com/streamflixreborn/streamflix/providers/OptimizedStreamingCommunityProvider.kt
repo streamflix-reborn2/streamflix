@@ -3,6 +3,7 @@ package com.streamflixreborn.streamflix.providers
 import android.util.Log
 import com.streamflixreborn.streamflix.BuildConfig
 import com.streamflixreborn.streamflix.adapters.AppAdapter
+import com.streamflixreborn.streamflix.extractors.VixcloudMetadataException
 import com.streamflixreborn.streamflix.models.Category
 import com.streamflixreborn.streamflix.models.Episode
 import com.streamflixreborn.streamflix.models.Genre
@@ -11,6 +12,7 @@ import com.streamflixreborn.streamflix.models.People
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.utils.UserPreferences
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -41,6 +43,7 @@ class OptimizedStreamingCommunityProvider(
         private const val DETAIL_TTL_MS = 5 * 60_000L
         private const val SEASON_TTL_MS = 5 * 60_000L
         private const val RECOVERY_COOLDOWN_MS = 2_000L
+        private const val EMPTY_IFRAME_RETRY_DELAY_MS = 250L
         private const val TV_MAX_HOME_ROWS = 14
         private const val TV_MAX_ROW_ITEMS = 24
         private const val TV_MAX_FEATURED_ITEMS = 8
@@ -189,8 +192,17 @@ class OptimizedStreamingCommunityProvider(
         }
         if (first.isNotEmpty()) return first
 
-        // The legacy raw-document helper historically converted an HTTP 404 into an empty document.
-        // Treat an empty iframe result as a stale-domain signal and rebuild once internally.
+        // The legacy raw-document helper can turn a transient HTTP failure into an empty document.
+        // Retry the cheap iframe request once before paying for a complete domain/service rebuild.
+        delay(EMPTY_IFRAME_RETRY_DELAY_MS)
+        val transientRetry = runCatching {
+            delegate.getServers(id, videoType)
+        }.getOrDefault(emptyList())
+        if (transientRetry.isNotEmpty()) {
+            captureResolvedDomain()
+            return transientRetry
+        }
+
         performRecovery("empty-iframe:$id", force = true)
         return delegate.getServers(id, videoType).also { captureResolvedDomain() }
     }
@@ -329,6 +341,8 @@ class OptimizedStreamingCommunityProvider(
 }
 
 internal fun isRecoverableStreamingCommunityError(error: Throwable): Boolean {
+    if (error is VixcloudMetadataException) return true
+
     val statusCode = (error as? HttpException)?.code()
     if (statusCode != null) {
         return statusCode in setOf(401, 403, 404, 408, 409, 410, 425, 429, 500, 502, 503, 504)
@@ -348,7 +362,8 @@ internal fun isRecoverableStreamingCommunityError(error: Throwable): Boolean {
         val message = error.message.orEmpty()
         return RECOVERABLE_HTTP_TEXT.containsMatchIn(message) ||
             message.contains("timeout", ignoreCase = true) ||
-            message.contains("connection", ignoreCase = true)
+            message.contains("connection", ignoreCase = true) ||
+            message.contains("playlist response", ignoreCase = true)
     }
 
     return false
