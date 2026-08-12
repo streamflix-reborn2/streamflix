@@ -31,7 +31,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="tv_favorites_title,btn_favorites_reorder_mode,btn_favorites_reorder" />
+        app:constraint_referenced_ids="btn_favorites_reorder_mode,btn_favorites_reorder" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_favorites"

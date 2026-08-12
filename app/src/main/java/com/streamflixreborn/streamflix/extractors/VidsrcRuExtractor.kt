@@ -2,18 +2,16 @@ package com.streamflixreborn.streamflix.extractors
 
 import android.os.Handler
 import android.os.Looper
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.media3.common.MimeTypes
 import com.streamflixreborn.streamflix.StreamFlixApp
 import com.streamflixreborn.streamflix.models.Video
-import com.streamflixreborn.streamflix.utils.DnsResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -37,34 +35,72 @@ class VidsrcRuExtractor : Extractor() {
         return withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { continuation ->
                 val webView = WebView(StreamFlixApp.instance.applicationContext)
-                
                 webView.settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                 }
+                val webViewUserAgent = webView.settings.userAgentString
 
                 val timeoutHandler = Handler(Looper.getMainLooper())
                 val timeoutRunnable = Runnable {
                     if (continuation.isActive) {
-                        continuation.resumeWithException(Exception("Timeout waiting for VidsrcRu stream"))
+                        continuation.resumeWithException(
+                            Exception("Timeout waiting for VidsrcRu stream"),
+                        )
                         webView.destroy()
                     }
                 }
-                timeoutHandler.postDelayed(timeoutRunnable, 30000)
+                timeoutHandler.postDelayed(timeoutRunnable, 30_000L)
 
                 webView.webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? {
-                        val url = request?.url?.toString() ?: ""
-                        if (url.contains("/file2/") && url.endsWith(".m3u8")) {
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                    ): android.webkit.WebResourceResponse? {
+                        val requestUri = request?.url
+                        val url = requestUri?.toString().orEmpty()
+                        val isPlaylist = requestUri?.path
+                            ?.endsWith(".m3u8", ignoreCase = true) == true
+
+                        if (url.contains("/file2/") && isPlaylist) {
                             timeoutHandler.removeCallbacks(timeoutRunnable)
                             if (continuation.isActive) {
+                                val requestHeaders = request?.requestHeaders.orEmpty()
+                                val playbackHeaders = buildMap {
+                                    requestHeaders.entries
+                                        .firstOrNull { it.key.equals("Referer", ignoreCase = true) }
+                                        ?.value
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { put("Referer", it) }
+                                    requestHeaders.entries
+                                        .firstOrNull { it.key.equals("Origin", ignoreCase = true) }
+                                        ?.value
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { put("Origin", it) }
+                                    requestHeaders.entries
+                                        .firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }
+                                        ?.value
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { put("User-Agent", it) }
+
+                                    if (!containsKey("Referer")) put("Referer", link)
+                                    if (!containsKey("User-Agent")) put("User-Agent", webViewUserAgent)
+
+                                    CookieManager.getInstance()
+                                        .getCookie(url)
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { put("Cookie", it) }
+                                }
+
                                 val video = Video(
                                     source = url,
                                     subtitles = emptyList(),
-                                    type = MimeTypes.APPLICATION_M3U8
+                                    type = MimeTypes.APPLICATION_M3U8,
+                                    headers = playbackHeaders.ifEmpty { null },
                                 )
                                 Handler(Looper.getMainLooper()).post {
-                                    continuation.resume(video)
+                                    if (continuation.isActive) continuation.resume(video)
+                                    webView.stopLoading()
                                     webView.destroy()
                                 }
                             }
@@ -76,12 +112,13 @@ class VidsrcRuExtractor : Extractor() {
                 webView.loadUrl(link)
 
                 continuation.invokeOnCancellation {
-                    webView.stopLoading()
-                    webView.destroy()
+                    timeoutHandler.removeCallbacks(timeoutRunnable)
+                    Handler(Looper.getMainLooper()).post {
+                        webView.stopLoading()
+                        webView.destroy()
+                    }
                 }
             }
         }
     }
-
-
 }

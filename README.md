@@ -21,13 +21,14 @@
   <summary>Table of Contents</summary>
 
 - [About the project](#about-the-project)
-  - [What is Streamflix Reborn?](#-what-is-streamflix-reborn2)
+  - [What is Streamflix Reborn?](#-what-is-streamflix-reborn)
   - [Features](#features)
   - [Built with](#built-with)
 - [Getting started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Setup](#setup)
 - [Development](#development)
+- [Playback security and privacy](#playback-security-and-privacy)
 - [Contributing](#contributing)
 - [Legal Disclaimer](#legal-disclaimer)
 - [Credits & Authors](#credits--authors)
@@ -65,6 +66,8 @@ The interface aggregates content from multiple sources and provides a convenient
 - Multiple providers
 - Resume from last playback position
 - In-app update
+- Playlist-specific `User-Agent` and `Referer` support
+- Defensive network restrictions for remote playlist playback
 
 ### Built with
 
@@ -99,6 +102,12 @@ git clone https://github.com/streamflix-reborn2/streamflix.git
 1. Select the device that you want to run the app
 
 2. Click **Run**
+
+## Playback security and privacy
+
+Remote playlist entries are validated before playback. Restricted playlist requests are kept inside the app so Streamflix can validate DNS answers and redirects, reject private and special-use network destinations, and preserve required nonblank request headers.
+
+Playback diagnostics avoid recording media URLs, access tokens, request headers, resolved addresses, or other source-identifying metadata.
 
 ## Contributing
 

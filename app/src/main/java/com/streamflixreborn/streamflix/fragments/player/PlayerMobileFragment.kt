@@ -59,6 +59,8 @@ import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.models.WatchItem
 import com.streamflixreborn.streamflix.providers.SerienStreamProvider
+import com.streamflixreborn.streamflix.providers.PublicPlaybackDns
+import com.streamflixreborn.streamflix.providers.PublicPlaybackNetworkInterceptor
 import com.streamflixreborn.streamflix.sync.CloudSyncHooks
 import com.streamflixreborn.streamflix.ui.PlayerMobileView
 import com.streamflixreborn.streamflix.utils.MediaServer
@@ -99,7 +101,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import okhttp3.internal.userAgent
 import java.util.Locale
 import com.streamflixreborn.streamflix.extractors.TokenManager
@@ -919,7 +923,9 @@ class PlayerMobileFragment : Fragment() {
 
         val softwareDecoder = PlayerSettingsView.Settings.SoftwareDecoder.isEnabled
         val needsReinit =
-            extraBuffering != currentExtraBuffering || softwareDecoder != currentSoftwareDecoder
+            extraBuffering != currentExtraBuffering ||
+                softwareDecoder != currentSoftwareDecoder ||
+                video.restrictToPublicNetwork != currentRestrictToPublicNetwork
         if (needsReinit) {
             initializePlayer(extraBuffering, softwareDecoder)
             player.playlistMetadata = MediaMetadata.Builder()
@@ -960,7 +966,9 @@ class PlayerMobileFragment : Fragment() {
                 .build()
         )
 
+        binding.pvPlayer.controller.binding.btnExoExternalPlayer.isEnabled = video.canUseExternalPlayer()
         binding.pvPlayer.controller.binding.btnExoExternalPlayer.setOnClickListener {
+            if (!video.canUseExternalPlayer()) return@setOnClickListener
             isIgnoringPip = true
             
             val videoTitle = when (val type = args.videoType) {
@@ -979,7 +987,7 @@ class PlayerMobileFragment : Fragment() {
                 
                 if (extractedUrl != null) {
                     sourceUri = extractedUrl.toUri()
-                    Log.i("ExternalPlayer", "Link reale estratto: $sourceUri")
+                    Log.i("ExternalPlayer", "Playlist source extracted")
                 } else {
                     try {
                         val file = File(requireContext().cacheDir, "stream.m3u8")
@@ -993,7 +1001,7 @@ class PlayerMobileFragment : Fragment() {
                 sourceUri = initialSource.toUri()
             }
 
-            Log.i("ExternalPlayer", "Avvio intent con URI: $sourceUri e MIME: $mimeType")
+            Log.i("ExternalPlayer", "Launching chooser with MIME: $mimeType")
 
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(sourceUri, mimeType)
@@ -1465,6 +1473,7 @@ class PlayerMobileFragment : Fragment() {
 
     private var currentExtraBuffering = false
     private var currentSoftwareDecoder = false
+    private var currentRestrictToPublicNetwork = false
 
     private fun buildPlayer(extraBuffering: Boolean): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()
@@ -1498,9 +1507,19 @@ class PlayerMobileFragment : Fragment() {
         releasePlayer()
         currentExtraBuffering = extraBuffering
         currentSoftwareDecoder = softwareDecoder
+        currentRestrictToPublicNetwork = currentVideo?.restrictToPublicNetwork == true
 
         var tokenLogged = false
-        val okHttpClient = NetworkClient.default.newBuilder()
+        val okHttpClientBuilder = NetworkClient.default.newBuilder()
+        if (currentRestrictToPublicNetwork) {
+            okHttpClientBuilder.interceptors().removeAll { it is HttpLoggingInterceptor }
+            okHttpClientBuilder.networkInterceptors().removeAll { it is HttpLoggingInterceptor }
+            okHttpClientBuilder
+                .connectionPool(ConnectionPool())
+                .dns(PublicPlaybackDns(DnsResolver.doh))
+                .addNetworkInterceptor(PublicPlaybackNetworkInterceptor)
+        }
+        val okHttpClient = okHttpClientBuilder
             .addInterceptor { chain ->
                 var request = chain.request()
                 
@@ -1515,7 +1534,7 @@ class PlayerMobileFragment : Fragment() {
                             tokenLogged = true
                         }
                     } else {
-                        android.util.Log.w("TokenManager", "[MOBILE-INTERCEPTOR] maintainToken=true but latestQuery is null! URL: ${request.url.host}")
+                        android.util.Log.w("TokenManager", "[MOBILE-INTERCEPTOR] maintainToken=true but latestQuery is null")
                     }
                 }
                 

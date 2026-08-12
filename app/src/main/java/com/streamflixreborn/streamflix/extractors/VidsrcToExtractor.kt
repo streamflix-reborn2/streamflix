@@ -1,11 +1,10 @@
 package com.streamflixreborn.streamflix.extractors
 
 import android.util.Base64
-import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
 import com.streamflixreborn.streamflix.models.Video
-import com.streamflixreborn.streamflix.utils.DnsResolver
+import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.retry
-import okhttp3.OkHttpClient
+import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
 import org.jsoup.nodes.Document
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -40,26 +39,32 @@ class VidsrcToExtractor : Extractor() {
         val mediaId = service.get(link)
             .selectFirst("ul.episodes li a")
             ?.attr("data-id")
+            ?.takeIf { it.isNotBlank() }
             ?: throw Exception("Can't retrieve media ID")
 
         val keys = service.getKeys(key)
+        require(keys.encrypt.isNotEmpty() && keys.decrypt.isNotEmpty()) {
+            "VidSrc key payload is incomplete"
+        }
 
         val sources = service.getSources(
             mediaId,
-            token = encode(keys.encrypt[0], mediaId)
+            token = encode(keys.encrypt[0], mediaId),
         ).result
+            ?.takeIf { it.isNotEmpty() }
             ?: throw Exception("Can't retrieve sources")
 
         val video = retry(sources.size) { attempt ->
             val source = sources[attempt - 1]
-
             val embedRes = service.getEmbedSource(
                 source.id,
-                token = encode(keys.encrypt[0], source.id)
+                token = encode(keys.encrypt[0], source.id),
             )
             val finalUrl = decryptUrl(keys.decrypt[0], embedRes.result.url)
 
-            if (finalUrl == embedRes.result.url) throw Exception("finalUrl == embedUrl")
+            if (finalUrl == embedRes.result.url) {
+                throw Exception("VidSrc source URL remained encrypted")
+            }
 
             when (source.title) {
                 "F2Cloud",
@@ -79,7 +84,7 @@ class VidsrcToExtractor : Extractor() {
                     it.label,
                     it.file,
                 )
-            }
+            },
         )
     }
 
@@ -94,14 +99,10 @@ class VidsrcToExtractor : Extractor() {
 
     private fun encode(key: String, vId: String): String {
         val decodedId = decodeData(key, vId)
-
-        val encodedBase64 = Base64.encode(decodedId, Base64.NO_WRAP).toString(Charsets.UTF_8)
-
-        val decodedResult = encodedBase64
+        return Base64.encode(decodedId, Base64.NO_WRAP)
+            .toString(Charsets.UTF_8)
             .replace("/", "_")
             .replace("+", "-")
-
-        return decodedResult
     }
 
     private fun decodeData(key: String, data: String): ByteArray {
@@ -123,7 +124,6 @@ class VidsrcToExtractor : Extractor() {
             k = (k + s[i].toInt()) and 0xff
             s[i] = s[k].also { s[k] = s[i] }
             val t = (s[i].toInt() + s[k].toInt()) and 0xff
-
             decoded[index] = (data[index].code xor s[t].toInt()).toByte()
         }
 
@@ -131,20 +131,17 @@ class VidsrcToExtractor : Extractor() {
     }
 
     private interface Service {
-
         companion object {
-            val client = OkHttpClient.Builder()
-                .dns(DnsResolver.doh)
-                .build()
+            private val client = NetworkClient.default.newBuilder().build()
+
             fun build(baseUrl: String): Service {
-                val retrofit = Retrofit.Builder()
+                return Retrofit.Builder()
                     .baseUrl(baseUrl)
                     .client(client)
                     .addConverterFactory(JsoupConverterFactory.create())
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
-
-                return retrofit.create(Service::class.java)
+                    .create(Service::class.java)
             }
         }
 
@@ -170,24 +167,22 @@ class VidsrcToExtractor : Extractor() {
         suspend fun getSubtitles(@Path("mediaId") mediaId: String): List<Subtitles>
     }
 
-
     data class EpisodeSources(
         val status: Int,
-        val result: List<Result>?
+        val result: List<Result>?,
     ) {
-
         data class Result(
             val id: String,
-            val title: String
+            val title: String,
         )
     }
 
     data class EmbedSource(
         val status: Int,
-        val result: Result
+        val result: Result,
     ) {
         data class Result(
-            val url: String
+            val url: String,
         )
     }
 

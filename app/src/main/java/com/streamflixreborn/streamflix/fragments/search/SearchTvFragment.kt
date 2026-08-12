@@ -50,21 +50,13 @@ class SearchTvFragment : Fragment() {
     private val appAdapter by lazy {
         AppAdapter().apply {
             onMovieClickListener = { movie ->
-
-                if (movie.providerName != UserPreferences.currentProvider?.name) {
-                    UserPreferences.currentProvider = Provider.providers.keys.find { it.name == movie.providerName }
-                    Toast.makeText(requireContext(), getString(R.string.switching_to_provider, movie.providerName), Toast.LENGTH_SHORT).show()
-                }
+                switchToResultProvider(movie.providerName)
                 findNavController().navigate(
                     SearchTvFragmentDirections.actionSearchToMovie(id = movie.id)
                 )
             }
             onTvShowClickListener = { tvShow ->
-
-                if (tvShow.providerName != UserPreferences.currentProvider?.name) {
-                    UserPreferences.currentProvider = Provider.providers.keys.find { it.name == tvShow.providerName }
-                    Toast.makeText(requireContext(), getString(R.string.switching_to_provider, tvShow.providerName), Toast.LENGTH_SHORT).show()
-                }
+                switchToResultProvider(tvShow.providerName)
                 findNavController().navigate(
                     SearchTvFragmentDirections.actionSearchToTvShow(
                         id = tvShow.id,
@@ -73,6 +65,25 @@ class SearchTvFragment : Fragment() {
                     )
                 )
             }
+        }
+    }
+
+    private fun switchToResultProvider(resultProviderName: String?) {
+        val currentProvider = UserPreferences.currentProvider
+        val resolvedProvider = resolveSearchResultProvider(
+            resultProviderName = resultProviderName,
+            currentProvider = currentProvider,
+            availableProviders = Provider.providers.keys,
+            providerName = { it.name },
+        )
+
+        if (resolvedProvider != null && resolvedProvider !== currentProvider) {
+            UserPreferences.currentProvider = resolvedProvider
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.switching_to_provider, resolvedProvider.name),
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 

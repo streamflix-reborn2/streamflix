@@ -7,9 +7,11 @@ import com.google.gson.JsonDeserializationContext
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
 import com.streamflixreborn.streamflix.models.Video
+import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.StringConverterFactory
+import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -30,15 +32,18 @@ open class VidplayExtractor : Extractor() {
         val service = Service.build(mainUrl)
 
         val id = link.substringBefore("?").substringAfterLast("/")
-
         val keys = service.getKeys(key)
+
+        require(keys.encrypt.size > 2 && keys.decrypt.size > 1) {
+            "Vidplay key payload is incomplete"
+        }
 
         val encId = encode(keys.encrypt[1], id)
         val h = encode(keys.encrypt[2], id)
-        val mediaUrl = "${mainUrl}/mediainfo/${encId}?${link.substringAfter("?")}&autostart=true&ads=0&h=${h}"
+        val mediaUrl = "${mainUrl}/mediainfo/${encId}?${link.substringAfter("?")}&autostart=true&ads=0&h=$h"
         val response = service.getSources(
             mediaUrl,
-            referer = link
+            referer = link,
         )
 
         val result = when (response) {
@@ -46,34 +51,41 @@ open class VidplayExtractor : Extractor() {
             is Sources.Encrypted -> response.decrypt(keys.decrypt[1]).result
         }
 
-        val video = Video(
-            source = result.sources?.first()?.file
-                ?: throw Exception("Can't retrieve source"),
+        val source = result.sources
+            ?.firstOrNull()
+            ?.file
+            ?.takeIf { it.isNotBlank() }
+            ?: throw Exception("Can't retrieve source")
+
+        val origin = link.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}" }
+        val playbackHeaders = buildMap {
+            put("Referer", link)
+            put("User-Agent", NetworkClient.USER_AGENT)
+            origin?.let { put("Origin", it) }
+        }
+
+        return Video(
+            source = source,
             subtitles = result.tracks
                 ?.filter { it.kind == "captions" }
                 ?.mapNotNull {
                     Video.Subtitle(
-                        it.label ?: "Unknow",
+                        it.label ?: "Unknown",
                         it.file ?: return@mapNotNull null,
                     )
                 }
-                ?: listOf()
+                ?: emptyList(),
+            headers = playbackHeaders,
         )
-
-        return video
     }
 
     companion object {
         private fun encode(key: String, vId: String): String {
             val decodedId = decodeData(key, vId)
-
-            val encodedBase64 = Base64.encode(decodedId, Base64.NO_WRAP).toString(Charsets.UTF_8)
-
-            val decodedResult = encodedBase64
+            return Base64.encode(decodedId, Base64.NO_WRAP)
+                .toString(Charsets.UTF_8)
                 .replace("/", "_")
                 .replace("+", "-")
-
-            return decodedResult
         }
 
         private fun decodeData(key: String, data: String): ByteArray {
@@ -95,7 +107,6 @@ open class VidplayExtractor : Extractor() {
                 k = (k + s[i].toInt()) and 0xff
                 s[i] = s[k].also { s[k] = s[i] }
                 val t = (s[i].toInt() + s[k].toInt()) and 0xff
-
                 decoded[index] = (data[index].code xor s[t].toInt()).toByte()
             }
 
@@ -116,13 +127,13 @@ open class VidplayExtractor : Extractor() {
         override val mainUrl = "https://vidplay.online"
     }
 
-
     private interface Service {
-
         companion object {
             fun build(baseUrl: String): Service {
+                val client = NetworkClient.default.newBuilder().build()
                 val retrofit = Retrofit.Builder()
                     .baseUrl(baseUrl)
+                    .client(client)
                     .addConverterFactory(JsoupConverterFactory.create())
                     .addConverterFactory(StringConverterFactory.create())
                     .addConverterFactory(
@@ -132,8 +143,8 @@ open class VidplayExtractor : Extractor() {
                                     SourcesResponse::class.java,
                                     SourcesResponse.Deserializer(),
                                 )
-                                .create()
-                        )
+                                .create(),
+                        ),
                     )
                     .build()
 
@@ -145,6 +156,9 @@ open class VidplayExtractor : Extractor() {
         @Headers(
             "Accept: application/json, text/javascript, */*; q=0.01",
             "X-Requested-With: XMLHttpRequest",
+            "Sec-Fetch-Dest: empty",
+            "Sec-Fetch-Mode: cors",
+            "Sec-Fetch-Site: same-origin",
         )
         suspend fun getSources(
             @Url url: String,
@@ -155,16 +169,14 @@ open class VidplayExtractor : Extractor() {
         suspend fun getKeys(@Url url: String): Keys
     }
 
-
     sealed class SourcesResponse {
         class Deserializer : JsonDeserializer<SourcesResponse> {
             override fun deserialize(
                 json: JsonElement?,
                 typeOfT: Type?,
-                context: JsonDeserializationContext?
+                context: JsonDeserializationContext?,
             ): SourcesResponse {
                 val jsonObject = json?.asJsonObject ?: JsonObject()
-
                 return when (jsonObject.get("result")?.isJsonObject ?: false) {
                     true -> Gson().fromJson(json, Sources::class.java)
                     false -> Gson().fromJson(json, Sources.Encrypted::class.java)
@@ -172,7 +184,6 @@ open class VidplayExtractor : Extractor() {
             }
         }
     }
-
 
     data class Sources(
         val status: Int? = null,
@@ -188,7 +199,6 @@ open class VidplayExtractor : Extractor() {
                     val standardizedInput = url
                         .replace('_', '/')
                         .replace('-', '+')
-
                     return Base64.decode(standardizedInput, Base64.NO_WRAP)
                 }
 
@@ -211,22 +221,15 @@ open class VidplayExtractor : Extractor() {
                         k = (k + s[i].toInt()) and 0xff
                         s[i] = s[k].also { s[k] = s[i] }
                         val t = (s[i].toInt() + s[k].toInt()) and 0xff
-
-                        decoded[index] = (data[index] xor s[t])
+                        decoded[index] = data[index] xor s[t]
                     }
 
                     return decoded
                 }
 
-                fun decodeEmbed(): String {
-                    val encoded = decodeBase64UrlSafe(result)
-                    val decoded = decodeData(key, encoded)
-                    val decodedText = decoded.toString(Charsets.UTF_8)
-
-                    return URLDecoder.decode(decodedText, "utf-8")
-                }
-
-                val resultJson = decodeEmbed()
+                val encoded = decodeBase64UrlSafe(result)
+                val decoded = decodeData(key, encoded)
+                val resultJson = URLDecoder.decode(decoded.toString(Charsets.UTF_8), "utf-8")
                 return Sources(
                     status = status,
                     result = Gson().fromJson(resultJson, Result::class.java),
@@ -235,10 +238,9 @@ open class VidplayExtractor : Extractor() {
         }
 
         data class Result(
-            val sources: List<Sources>? = listOf(),
-            val tracks: List<Tracks>? = listOf(),
+            val sources: List<Sources>? = emptyList(),
+            val tracks: List<Tracks>? = emptyList(),
         ) {
-
             data class Tracks(
                 val file: String? = null,
                 val label: String? = null,

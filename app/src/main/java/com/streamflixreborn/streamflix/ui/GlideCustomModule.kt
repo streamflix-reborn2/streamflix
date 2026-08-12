@@ -2,17 +2,21 @@ package com.streamflixreborn.streamflix.ui
 
 import android.content.Context
 import android.graphics.drawable.PictureDrawable
-import android.webkit.CookieManager
 import com.bumptech.glide.Glide
 import com.bumptech.glide.annotation.GlideModule
 import com.bumptech.glide.load.model.GlideUrl
 import com.bumptech.glide.module.AppGlideModule
 import com.caverock.androidsvg.SVG
+import com.streamflixreborn.streamflix.BuildConfig
 import com.streamflixreborn.streamflix.utils.ArtworkRequestHeaders
 import com.streamflixreborn.streamflix.utils.DnsResolver
 import com.streamflixreborn.streamflix.utils.NetworkClient
-import okhttp3.*
-import okhttp3.OkHttpClient.Builder
+import okhttp3.Cache
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.Dispatcher
+import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.io.File
 import java.io.InputStream
@@ -25,22 +29,47 @@ import javax.net.ssl.X509TrustManager
 @GlideModule
 class GlideCustomModule : AppGlideModule() {
 
-    private fun getOkHttpClient(context: Context): OkHttpClient {
-        val appCache = Cache(File(context.cacheDir, "glide-okhttp-cache"), 10 * 1024 * 1024)
+    companion object {
+        private const val IMAGE_CACHE_BYTES = 32L * 1024L * 1024L
+        private const val IMAGE_CONNECT_TIMEOUT_SECONDS = 10L
+        private const val IMAGE_READ_TIMEOUT_SECONDS = 15L
+        private const val IMAGE_CALL_TIMEOUT_SECONDS = 20L
+    }
 
-        val logging = HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC)
+    private fun getOkHttpClient(context: Context): OkHttpClient {
+        // TV screens revisit the same posters/backgrounds frequently. A modestly larger disk cache
+        // prevents network/refetch churn without retaining additional decoded bitmaps in memory.
+        val appCache = Cache(File(context.cacheDir, "glide-okhttp-cache"), IMAGE_CACHE_BYTES)
 
         val trustAllCerts = arrayOf<TrustManager>(
             object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-            }
+                override fun checkClientTrusted(
+                    chain: Array<java.security.cert.X509Certificate>,
+                    authType: String,
+                ) = Unit
+
+                override fun checkServerTrusted(
+                    chain: Array<java.security.cert.X509Certificate>,
+                    authType: String,
+                ) = Unit
+
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                    emptyArray()
+            },
         )
-        val sslContext = SSLContext.getInstance("TLS").apply { init(null, trustAllCerts, SecureRandom()) }
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, trustAllCerts, SecureRandom())
+        }
         val trustManager = trustAllCerts[0] as X509TrustManager
 
-        return Builder()
+        val dispatcher = Dispatcher().apply {
+            // Avoid a large TV grid monopolizing CPU/network sockets while the user is navigating.
+            maxRequests = 12
+            maxRequestsPerHost = 5
+        }
+
+        val builder = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
             .cache(appCache)
             .cookieJar(imageCookieJar)
             .addInterceptor { chain ->
@@ -55,13 +84,15 @@ class GlideCustomModule : AppGlideModule() {
                 }
                 if (original.header("Accept-Language") == null) {
                     requestBuilder.header(
-                        "Accept-Language", "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+                        "Accept-Language",
+                        "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
                     )
                 }
                 chain.proceed(requestBuilder.build())
             }
-            .readTimeout(30, TimeUnit.SECONDS)
-            .connectTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(IMAGE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(IMAGE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(IMAGE_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request = chain.request()
                 val headers = ArtworkRequestHeaders.headersFor(request.url)
@@ -78,15 +109,25 @@ class GlideCustomModule : AppGlideModule() {
                 }
                 chain.proceed(fixedRequest)
             }
-            .addInterceptor(logging)
             .sslSocketFactory(sslContext.socketFactory, trustManager)
             .hostnameVerifier { _, _ -> true }
             .dns(DnsResolver.doh)
-            .build()
+
+        // BASIC logging for every poster/banner creates avoidable Logcat/string churn on debug TV APKs.
+        // Keep it on other debug layouts where it remains useful for provider/image diagnostics.
+        if (BuildConfig.DEBUG && !BuildConfig.APP_LAYOUT.equals("tv", ignoreCase = true)) {
+            builder.addInterceptor(
+                HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC),
+            )
+        }
+
+        return builder.build()
     }
 
     override fun registerComponents(
-        context: Context, glide: Glide, registry: com.bumptech.glide.Registry
+        context: Context,
+        glide: Glide,
+        registry: com.bumptech.glide.Registry,
     ) {
         val okHttpClient = getOkHttpClient(context)
         registry.replace(
@@ -111,9 +152,7 @@ class GlideCustomModule : AppGlideModule() {
             NetworkClient.cookieJar.saveFromResponse(url, cookies)
         }
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return NetworkClient.cookieJar.loadForRequest(url)
-        }
+        override fun loadForRequest(url: HttpUrl): List<Cookie> =
+            NetworkClient.cookieJar.loadForRequest(url)
     }
-
 }

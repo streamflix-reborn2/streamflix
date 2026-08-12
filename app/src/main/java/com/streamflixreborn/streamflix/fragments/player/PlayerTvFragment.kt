@@ -72,6 +72,8 @@ import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.models.WatchItem
 import com.streamflixreborn.streamflix.providers.SerienStreamProvider
+import com.streamflixreborn.streamflix.providers.PublicPlaybackDns
+import com.streamflixreborn.streamflix.providers.PublicPlaybackNetworkInterceptor
 import com.streamflixreborn.streamflix.sync.CloudSyncHooks
 import com.streamflixreborn.streamflix.ui.PlayerTvView
 import com.streamflixreborn.streamflix.utils.SubtitleOffsetRenderersFactory
@@ -1039,7 +1041,9 @@ class PlayerTvFragment : Fragment() {
             val extraBuffering = PlayerSettingsView.Settings.ExtraBuffering.isEnabled
             val softwareDecoder = PlayerSettingsView.Settings.SoftwareDecoder.isEnabled
             val needsReinit =
-                extraBuffering != currentExtraBuffering || softwareDecoder != currentSoftwareDecoder
+                extraBuffering != currentExtraBuffering ||
+                    softwareDecoder != currentSoftwareDecoder ||
+                    video.restrictToPublicNetwork != currentRestrictToPublicNetwork
             if (needsReinit) {
                 initializePlayer(extraBuffering, softwareDecoder)
                 player.playlistMetadata = MediaMetadata.Builder()
@@ -1079,7 +1083,9 @@ class PlayerTvFragment : Fragment() {
                     .build()
             )
 
+            binding.pvPlayer.controller.binding.btnExoExternalPlayer.isEnabled = video.canUseExternalPlayer()
             binding.pvPlayer.controller.binding.btnExoExternalPlayer.setOnClickListener {
+                if (!video.canUseExternalPlayer()) return@setOnClickListener
                 val videoTitle = when (val type = args.videoType) {
                     is Video.Type.Movie -> type.title
                     is Video.Type.Episode -> "${type.tvShow.title} • S${type.season.number} E${type.number}"
@@ -1097,7 +1103,7 @@ class PlayerTvFragment : Fragment() {
 
                     if (extractedUrl != null) {
                         sourceUri = extractedUrl.toUri()
-                        Log.i("ExternalPlayer", "Link reale estratto TV: $sourceUri")
+                        Log.i("ExternalPlayer", "TV playlist source extracted")
                     } else {
                         try {
                             val file = File(requireContext().cacheDir, "stream.m3u8")
@@ -1119,7 +1125,7 @@ class PlayerTvFragment : Fragment() {
                     sourceUri = initialSource.toUri()
                 }
 
-                Log.i("ExternalPlayer", "Avvio intent TV con URI: $sourceUri e MIME: $mimeType")
+                Log.i("ExternalPlayer", "Launching TV chooser with MIME: $mimeType")
 
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(sourceUri, mimeType)
@@ -1690,6 +1696,7 @@ class PlayerTvFragment : Fragment() {
 
         private var currentExtraBuffering = false
         private var currentSoftwareDecoder = false
+        private var currentRestrictToPublicNetwork = false
 
         private fun buildPlayer(extraBuffering: Boolean): ExoPlayer {
             val loadControl = DefaultLoadControl.Builder()
@@ -1721,10 +1728,18 @@ class PlayerTvFragment : Fragment() {
             releasePlayer()
             currentExtraBuffering = extraBuffering
             currentSoftwareDecoder = softwareDecoder
+            currentRestrictToPublicNetwork = currentVideo?.restrictToPublicNetwork == true
 
             var tokenLogged = false
-            val okHttpClient = OkHttpClient.Builder()
-                .dns(DnsResolver.doh)
+            val okHttpClientBuilder = OkHttpClient.Builder()
+                .dns(
+                    if (currentRestrictToPublicNetwork) PublicPlaybackDns(DnsResolver.doh)
+                    else DnsResolver.doh,
+                )
+            if (currentRestrictToPublicNetwork) {
+                okHttpClientBuilder.addNetworkInterceptor(PublicPlaybackNetworkInterceptor)
+            }
+            val okHttpClient = okHttpClientBuilder
                 .addInterceptor { chain ->
                     var request = chain.request()
                     
@@ -1739,7 +1754,7 @@ class PlayerTvFragment : Fragment() {
                                 tokenLogged = true
                             }
                         } else {
-                            android.util.Log.w("TokenManager", "[TV-INTERCEPTOR] maintainToken=true but latestQuery is null! URL: ${request.url.host}")
+                            android.util.Log.w("TokenManager", "[TV-INTERCEPTOR] maintainToken=true but latestQuery is null")
                         }
                     }
                     

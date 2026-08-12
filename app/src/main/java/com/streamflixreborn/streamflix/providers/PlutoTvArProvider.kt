@@ -53,32 +53,41 @@ object PlutoTvArProvider : IptvProvider {
     )
 
     private fun createId(channel: M3UChannel): String {
-        val rawId = "${channel.url}|${channel.name}|${channel.logo ?: ""}|${channel.userAgent ?: ""}|${channel.referrer ?: ""}"
-        return Base64.encodeToString(rawId.toByteArray(), Base64.NO_WRAP)
+        val payload = encodeM3uPlaybackIdentity(
+            M3uPlaybackIdentity(
+                provider = this.name,
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            ),
+        )
+        return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
+
+    private fun decodeIdentity(id: String): M3uPlaybackIdentity =
+        requireM3uPlaybackIdentityFromBase64(
+            encoded = id,
+            expectedProvider = name,
+            decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+            encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
+        )
 
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") {
             return Triple(id, "", "")
         }
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            Triple(parts[0], parts[1], parts.getOrNull(2) ?: "")
-        } catch (e: Exception) {
-            Triple(id, "Canal Desconocido", "")
-        }
+        val identity = decodeIdentity(id)
+        return Triple(identity.url, identity.name, identity.logo.orEmpty())
     }
 
     private fun getMetadataFromId(id: String): Map<String, String?> {
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            mapOf(
-                "ua" to parts.getOrNull(3).takeIf { it?.isNotEmpty() == true },
-                "referer" to parts.getOrNull(4).takeIf { it?.isNotEmpty() == true }
-            )
-        } catch (e: Exception) { emptyMap() }
+        val identity = decodeIdentity(id)
+        return mapOf(
+            "ua" to identity.userAgent,
+            "referer" to identity.referrer,
+        )
     }
 
     private fun getAllChannels(): List<M3UChannel> {
@@ -217,11 +226,12 @@ object PlutoTvArProvider : IptvProvider {
         val (url, _, _) = decodeId(server.id)
         val meta = getMetadataFromId(server.id)
 
-        Log.d(TAG, "🎬 Reproduciendo: $url")
-        meta["ua"]?.let { Log.d(TAG, "🛡️ Header UA detectado en M3U: $it") }
-        meta["referer"]?.let { Log.d(TAG, "🛡️ Header Referer detectado en M3U: $it") }
 
-        return Video(source = url, subtitles = emptyList())
+        return m3uPlaybackVideo(
+            source = url,
+            userAgent = meta["ua"],
+            referrer = meta["referer"],
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {
@@ -268,7 +278,15 @@ object PlutoTvArProvider : IptvProvider {
                 }
             }
         }
-        return channels
+        return channels.filter { channel ->
+            isValidM3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            )
+        }
     }
 
     override suspend fun getMovies(page: Int): List<Movie> = emptyList()

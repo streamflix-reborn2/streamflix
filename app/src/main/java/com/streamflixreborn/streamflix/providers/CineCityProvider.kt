@@ -18,8 +18,6 @@ object CineCityProvider : IptvProvider {
 
     private const val OBFUSCATED_PLAYLIST = "aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0NJTkVDSVRZMjAyMy9jaW5lY2l0eS9jaW5lY2l0eS5uZXQvcHJpbmNpcGFsLm0zdQ=="
 
-    private const val FALLBACK_VIDEO_URL = "https://raw.githubusercontent.com/NANDOFS/ModoPrueba/main/VIDEO/SIN-SE%C3%91AL.mp4"
-
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -54,30 +52,31 @@ object CineCityProvider : IptvProvider {
     )
 
     private fun createId(channel: M3UChannel): String {
-        val rawId = "${channel.url}|${channel.name}|${channel.logo ?: ""}|${channel.userAgent ?: ""}|${channel.referrer ?: ""}"
-        return Base64.encodeToString(rawId.toByteArray(), Base64.NO_WRAP)
+        val payload = encodeM3uPlaybackIdentity(
+            M3uPlaybackIdentity(
+                provider = this.name,
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            ),
+        )
+        return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
+
+    private fun decodeIdentity(id: String): M3uPlaybackIdentity =
+        requireM3uPlaybackIdentityFromBase64(
+            encoded = id,
+            expectedProvider = name,
+            decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+            encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
+        )
 
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") return Triple(id, "", "")
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            Triple(parts[0], parts[1], parts.getOrNull(2) ?: "")
-        } catch (e: Exception) {
-            Triple(id, "Canal Desconocido", "")
-        }
-    }
-
-    private fun getMetadataFromId(id: String): Map<String, String?> {
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            mapOf(
-                "ua" to parts.getOrNull(3).takeIf { it?.isNotEmpty() == true },
-                "referer" to parts.getOrNull(4).takeIf { it?.isNotEmpty() == true }
-            )
-        } catch (e: Exception) { emptyMap() }
+        val identity = decodeIdentity(id)
+        return Triple(identity.url, identity.name, identity.logo.orEmpty())
     }
 
     private fun getAllChannels(): List<M3UChannel> {
@@ -179,66 +178,12 @@ object CineCityProvider : IptvProvider {
     }
 
     override suspend fun getVideo(server: Video.Server): Video {
-        val (url, _, _) = decodeId(server.id)
-        val meta = getMetadataFromId(server.id)
-
-        Log.d(TAG, "🎬 Solicitando Reproducción: $url")
-
-        val videoHeaders = mutableMapOf<String, String>()
-        meta["ua"]?.let { videoHeaders["User-Agent"] = it }
-        meta["referer"]?.let { videoHeaders["Referer"] = it }
-
-        return try {
-            val checkRequest = Request.Builder()
-                .url(url)
-                .apply { videoHeaders.forEach { (k, v) -> addHeader(k, v) } }
-                .build()
-
-            val response = client.newCall(checkRequest).execute()
-            var isAlive = response.isSuccessful
-
-
-            if (isAlive) {
-                val contentType = response.header("Content-Type") ?: ""
-                if (contentType.contains("text/html", ignoreCase = true)) {
-                    isAlive = false
-                    Log.e(TAG, "🔴 Falso Positivo: El servidor devolvió una página web (HTML), no un video.")
-                } else if (url.contains(".mpd") || url.contains(".m3u8")) {
-                    // Aumentamos la visión a 15KB para escanear en profundidad sin descargar todo el archivo
-                    val peekBody = response.peekBody(15360).string()
-
-                    if (url.contains(".mpd")) {
-                        if (!peekBody.contains("<MPD", ignoreCase = true)) {
-                            isAlive = false
-                            Log.e(TAG, "🔴 MPD Falso: No contiene etiqueta XML.")
-                        } else if (peekBody.contains("ContentProtection", ignoreCase = true) || peekBody.contains("cenc:pssh", ignoreCase = true)) {
-                            // ☠️ AQUÍ ATRAPAMOS AL CULPABLE DE TUS CRASHES
-                            isAlive = false
-                            Log.e(TAG, "🔴 ALERTA DRM: MPD Encriptado detectado. ExoPlayer crashearía sin llaves. ¡Activando Salvavidas!")
-                        }
-                    } else if (url.contains(".m3u8") && !peekBody.contains("#EXTM3U", ignoreCase = true)) {
-                        isAlive = false
-                        Log.e(TAG, "🔴 M3U8 Falso: No contiene la cabecera válida.")
-                    }
-                }
-            }
-            response.close()
-
-            if (isAlive) {
-                Log.d(TAG, "🟢 Explorador OK. Limpio de DRM. Enviando al reproductor.")
-                Video(
-                    source = url,
-                    subtitles = emptyList(),
-                    headers = if (videoHeaders.isNotEmpty()) videoHeaders else null
-                )
-            } else {
-                Log.e(TAG, "🔴 Canal Muerto o Encriptado. ¡Activando Video Salvavidas!")
-                Video(source = FALLBACK_VIDEO_URL, subtitles = emptyList())
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "🔴 Timeout de Red o Error Grave. ¡Activando Video Salvavidas! Detalle: ${e.message}")
-            Video(source = FALLBACK_VIDEO_URL, subtitles = emptyList())
-        }
+        val identity = decodeIdentity(server.id)
+        return m3uPlaybackVideo(
+            source = identity.url,
+            userAgent = identity.userAgent,
+            referrer = identity.referrer,
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {
@@ -276,7 +221,15 @@ object CineCityProvider : IptvProvider {
                 }
             }
         }
-        return channels
+        return channels.filter { channel ->
+            isValidM3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            )
+        }
     }
 
     override suspend fun getMovies(page: Int): List<Movie> = emptyList()

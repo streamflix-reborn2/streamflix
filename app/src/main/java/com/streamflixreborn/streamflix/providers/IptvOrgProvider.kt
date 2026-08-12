@@ -57,29 +57,36 @@ object IptvOrgProvider : IptvProvider {
     )
 
     private fun createId(channel: M3UChannel): String {
-        val rawId = "${channel.url}|${channel.name}|${channel.logo ?: ""}|${channel.userAgent ?: ""}"
-        return Base64.encodeToString(rawId.toByteArray(), Base64.NO_WRAP)
+        val payload = encodeM3uPlaybackIdentity(
+            M3uPlaybackIdentity(
+                provider = this.name,
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = null,
+            ),
+        )
+        return Base64.encodeToString(payload.toByteArray(), Base64.NO_WRAP)
     }
+
+    private fun decodeIdentity(id: String): M3uPlaybackIdentity =
+        requireM3uPlaybackIdentityFromBase64(
+            encoded = id,
+            expectedProvider = name,
+            legacyFieldCount = 4,
+            decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+            encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
+        )
 
     private fun decodeId(id: String): Triple<String, String, String> {
         if (id == "creador-info" || id == "apoyo-nando") return Triple(id, "", "")
 
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            Triple(parts[0], parts[1], parts.getOrNull(2) ?: "")
-        } catch (e: Exception) {
-            Triple(id, "Canal Desconocido", "")
-        }
+        val identity = decodeIdentity(id)
+        return Triple(identity.url, identity.name, identity.logo.orEmpty())
     }
 
-    private fun getUAFromId(id: String): String? {
-        return try {
-            val decoded = String(Base64.decode(id, Base64.DEFAULT))
-            val parts = decoded.split("|")
-            if (parts.size >= 4 && parts[3].isNotEmpty()) parts[3] else null
-        } catch (e: Exception) { null }
-    }
+    private fun getUAFromId(id: String): String? = decodeIdentity(id).userAgent
 
     private fun getAllChannels(): List<M3UChannel> {
         val now = System.currentTimeMillis()
@@ -203,8 +210,11 @@ object IptvOrgProvider : IptvProvider {
     override suspend fun getVideo(server: Video.Server): Video {
         val (url, _, _) = decodeId(server.id)
         val customUA = getUAFromId(server.id)
-        Log.d(TAG, "🎬 Play: $url | UA: $customUA")
-        return Video(source = url, subtitles = emptyList())
+        return m3uPlaybackVideo(
+            source = url,
+            userAgent = customUA,
+            referrer = null,
+        )
     }
 
     private fun getInfoItem(id: String): TvShow {
@@ -244,7 +254,15 @@ object IptvOrgProvider : IptvProvider {
                 }
             }
         }
-        return channels
+        return channels.filter { channel ->
+            isValidM3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = null,
+            )
+        }
     }
 
     override suspend fun getMovies(page: Int): List<Movie> = emptyList()
