@@ -288,7 +288,14 @@ class PlayerTvFragment : Fragment() {
                 Lifecycle.State.RESUMED,
             ).collect { state ->
                 when (state) {
-                    PlayerViewModel.State.LoadingServers -> {}
+                    PlayerViewModel.State.LoadingServers -> {
+                        sourceRecovery.reset()
+                        playbackConfirmation.reset()
+                        stopProgressHandler()
+                        recoveryPositionMs = null
+                        recoveryPlayWhenReady = null
+                        servers = emptyList()
+                    }
                     is PlayerViewModel.State.SuccessLoadingServers -> {
                         viewModel.markTvServersObserved(tvViewReplayToken)
                         servers = state.servers

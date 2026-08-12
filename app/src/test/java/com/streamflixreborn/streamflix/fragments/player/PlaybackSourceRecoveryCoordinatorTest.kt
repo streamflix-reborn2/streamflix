@@ -173,4 +173,15 @@ class PlaybackSourceRecoveryCoordinatorTest {
             assertEquals(PlaybackSourceRecoveryCoordinator.Outcome.Cancelled, c.resolutionFailed(only.request.token, Exception("stale")))
         }
     }
+
+    @Test fun `reset invalidates an in-flight resolution from the previous episode`() {
+        val c = coordinator()
+        val first = source("a")
+        val second = source("b")
+        val resolving = c.discover(listOf(first, second)) as PlaybackSourceRecoveryCoordinator.Outcome.Resolve
+
+        c.reset()
+
+        assertTrue(c.resolved(resolving.request.token, first.src) is PlaybackSourceRecoveryCoordinator.Outcome.Cancelled)
+    }
 }

@@ -17,6 +17,11 @@ The canary serves a bundled three-second MP4 on device loopback, forces two HTTP
 failures on the first candidate, verifies one retry and failover, then requires the second candidate
 to advance through actual Media3 playback. It performs no external provider or media request.
 
+Provider discovery and TV video resolution use one synchronized session gate. Starting a newer
+episode or reload cancels prior work, invalidates both generations, and atomically rejects late
+success or failure emissions. `LoadingServers` resets the fragment recovery coordinator before a
+new source can be accepted.
+
 Lint and each debug layout are configured through `APP_LAYOUT` in `local.properties`. Run each
 layout in a fresh Gradle invocation after setting that property:
 

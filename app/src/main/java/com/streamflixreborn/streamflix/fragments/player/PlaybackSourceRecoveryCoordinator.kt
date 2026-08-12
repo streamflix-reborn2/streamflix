@@ -41,6 +41,19 @@ class PlaybackSourceRecoveryCoordinator<T>(
     private var restoring = false
 
     @Synchronized
+    fun reset() {
+        cancelActive()
+        candidates = emptyList()
+        failed.clear()
+        retried.clear()
+        activeIndex = -1
+        lastWorkingIndex = null
+        restorationAttempted = false
+        restoring = false
+        phase = Phase.IDLE
+    }
+
+    @Synchronized
     fun discover(candidates: List<T>, preferredIndex: Int = 0): Outcome<T> {
         this.candidates = candidates.toList()
         failed.clear()
