@@ -1,6 +1,7 @@
 package com.streamflixreborn.streamflix.providers
 
 import android.util.Log
+import com.streamflixreborn.streamflix.BuildConfig
 import com.streamflixreborn.streamflix.adapters.AppAdapter
 import com.streamflixreborn.streamflix.models.Category
 import com.streamflixreborn.streamflix.models.Episode
@@ -39,6 +40,9 @@ class OptimizedStreamingCommunityProvider(
         private const val DETAIL_TTL_MS = 5 * 60_000L
         private const val SEASON_TTL_MS = 5 * 60_000L
         private const val RECOVERY_COOLDOWN_MS = 2_000L
+        private const val TV_MAX_HOME_ROWS = 14
+        private const val TV_MAX_ROW_ITEMS = 24
+        private const val TV_MAX_FEATURED_ITEMS = 8
     }
 
     private data class TimedValue<T>(
@@ -94,11 +98,13 @@ class OptimizedStreamingCommunityProvider(
 
             val stale = homeCache?.value
             try {
-                withRecovery("home") { delegate.getHome() }.also { categories ->
-                    if (categories.isNotEmpty()) {
-                        homeCache = TimedValue(categories, System.currentTimeMillis())
+                withRecovery("home") { delegate.getHome() }
+                    .let(::shapeHomeForLayout)
+                    .also { categories ->
+                        if (categories.isNotEmpty()) {
+                            homeCache = TimedValue(categories, System.currentTimeMillis())
+                        }
                     }
-                }
             } catch (e: Exception) {
                 if (!stale.isNullOrEmpty()) {
                     Log.w(TAG, "Home refresh failed; serving stale in-memory home", e)
@@ -192,6 +198,25 @@ class OptimizedStreamingCommunityProvider(
         performRecovery("manual", force = true)
     }
 
+    private fun shapeHomeForLayout(categories: List<Category>): List<Category> {
+        if (!BuildConfig.APP_LAYOUT.equals("tv", ignoreCase = true)) return categories
+
+        // Trim before HomeViewModel flattens items and asks Room for matching IDs. This saves network
+        // image churn, allocations and DB work rather than merely hiding rows after the work is done.
+        return categories.asSequence()
+            .filter { it.list.isNotEmpty() }
+            .take(TV_MAX_HOME_ROWS)
+            .map { category ->
+                val limit = if (category.name == Category.FEATURED) {
+                    TV_MAX_FEATURED_ITEMS
+                } else {
+                    TV_MAX_ROW_ITEMS
+                }
+                category.copy(list = category.list.take(limit))
+            }
+            .toList()
+    }
+
     private suspend fun syncDomainPreference() {
         val current = UserPreferences.streamingcommunityDomain
         if (current == observedDomain) return
@@ -242,8 +267,6 @@ class OptimizedStreamingCommunityProvider(
 
     private suspend fun rebuildDelegateForPreference(preferredDomain: String) {
         if (preferredDomain.isBlank()) {
-            // Let the delegate resolve its own current/default domain. Passing an empty string would
-            // construct an invalid https:/// base URL.
             delegate.rebuildService()
         } else {
             delegate.rebuildService(preferredDomain)
@@ -286,8 +309,6 @@ internal fun isRecoverableStreamingCommunityError(error: Throwable): Boolean {
         return true
     }
 
-    // Many extractor/provider layers wrap HTTP failures in IOException while preserving the status
-    // in the message. Keep this deliberately narrow rather than retrying every programming error.
     if (error is IOException) {
         val message = error.message.orEmpty()
         return RECOVERABLE_HTTP_TEXT.containsMatchIn(message) ||
