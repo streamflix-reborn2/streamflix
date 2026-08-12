@@ -11,7 +11,8 @@ data class Video(
     val type: String? = null,
     val extraBuffering: Boolean = false,
     val useServerSubtitleSetting: Boolean = false,
-    val maintainToken: Boolean = false
+    val maintainToken: Boolean = false,
+    val restrictToPublicNetwork: Boolean = false,
 ) : Serializable {
 
     sealed class Type : Parcelable, Serializable {

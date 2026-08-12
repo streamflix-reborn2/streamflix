@@ -54,6 +54,7 @@ object CineCityProvider : IptvProvider {
     private fun createId(channel: M3UChannel): String {
         val payload = encodeM3uPlaybackIdentity(
             M3uPlaybackIdentity(
+                provider = this.name,
                 url = channel.url,
                 name = channel.name,
                 logo = channel.logo,
@@ -67,6 +68,7 @@ object CineCityProvider : IptvProvider {
     private fun decodeIdentity(id: String): M3uPlaybackIdentity =
         requireM3uPlaybackIdentityFromBase64(
             encoded = id,
+            expectedProvider = name,
             decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
             encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
         )
@@ -177,11 +179,10 @@ object CineCityProvider : IptvProvider {
 
     override suspend fun getVideo(server: Video.Server): Video {
         val identity = decodeIdentity(server.id)
-        Log.d(TAG, "🎬 Solicitando Reproducción: ${identity.url}")
-        return Video(
+        return m3uPlaybackVideo(
             source = identity.url,
-            subtitles = emptyList(),
-            headers = m3uPlaybackHeaders(identity.userAgent, identity.referrer),
+            userAgent = identity.userAgent,
+            referrer = identity.referrer,
         )
     }
 

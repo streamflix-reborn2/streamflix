@@ -59,6 +59,8 @@ import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.models.WatchItem
 import com.streamflixreborn.streamflix.providers.SerienStreamProvider
+import com.streamflixreborn.streamflix.providers.PublicPlaybackDns
+import com.streamflixreborn.streamflix.providers.PublicPlaybackNetworkInterceptor
 import com.streamflixreborn.streamflix.sync.CloudSyncHooks
 import com.streamflixreborn.streamflix.ui.PlayerMobileView
 import com.streamflixreborn.streamflix.utils.MediaServer
@@ -99,6 +101,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.internal.userAgent
 import java.util.Locale
@@ -919,7 +922,9 @@ class PlayerMobileFragment : Fragment() {
 
         val softwareDecoder = PlayerSettingsView.Settings.SoftwareDecoder.isEnabled
         val needsReinit =
-            extraBuffering != currentExtraBuffering || softwareDecoder != currentSoftwareDecoder
+            extraBuffering != currentExtraBuffering ||
+                softwareDecoder != currentSoftwareDecoder ||
+                video.restrictToPublicNetwork != currentRestrictToPublicNetwork
         if (needsReinit) {
             initializePlayer(extraBuffering, softwareDecoder)
             player.playlistMetadata = MediaMetadata.Builder()
@@ -1465,6 +1470,7 @@ class PlayerMobileFragment : Fragment() {
 
     private var currentExtraBuffering = false
     private var currentSoftwareDecoder = false
+    private var currentRestrictToPublicNetwork = false
 
     private fun buildPlayer(extraBuffering: Boolean): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()
@@ -1498,9 +1504,17 @@ class PlayerMobileFragment : Fragment() {
         releasePlayer()
         currentExtraBuffering = extraBuffering
         currentSoftwareDecoder = softwareDecoder
+        currentRestrictToPublicNetwork = currentVideo?.restrictToPublicNetwork == true
 
         var tokenLogged = false
-        val okHttpClient = NetworkClient.default.newBuilder()
+        val okHttpClientBuilder = NetworkClient.default.newBuilder()
+        if (currentRestrictToPublicNetwork) {
+            okHttpClientBuilder
+                .connectionPool(ConnectionPool())
+                .dns(PublicPlaybackDns(DnsResolver.doh))
+                .addNetworkInterceptor(PublicPlaybackNetworkInterceptor)
+        }
+        val okHttpClient = okHttpClientBuilder
             .addInterceptor { chain ->
                 var request = chain.request()
                 

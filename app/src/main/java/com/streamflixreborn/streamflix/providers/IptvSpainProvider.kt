@@ -60,6 +60,7 @@ object IptvSpainProvider : IptvProvider {
     private fun createId(channel: M3UChannel): String {
         val payload = encodeM3uPlaybackIdentity(
             M3uPlaybackIdentity(
+                provider = this.name,
                 url = channel.url,
                 name = channel.name,
                 logo = channel.logo,
@@ -73,6 +74,7 @@ object IptvSpainProvider : IptvProvider {
     private fun decodeIdentity(id: String): M3uPlaybackIdentity =
         requireM3uPlaybackIdentityFromBase64(
             encoded = id,
+            expectedProvider = name,
             decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
             encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
         )
@@ -221,9 +223,6 @@ object IptvSpainProvider : IptvProvider {
         val (url, _, _) = decodeId(server.id)
         val meta = getMetadataFromId(server.id)
 
-        Log.d(TAG, "🎬 Play: $url")
-        meta["ua"]?.let { Log.d(TAG, "🛡️ Header UA: $it") }
-        meta["referer"]?.let { Log.d(TAG, "🛡️ Header Referer: $it") }
 
         return m3uPlaybackVideo(
             source = url,

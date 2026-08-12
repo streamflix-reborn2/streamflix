@@ -3,6 +3,8 @@ package com.streamflixreborn.streamflix.providers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.util.Base64
@@ -10,6 +12,7 @@ import java.util.Base64
 class M3uPlaybackHeadersTest {
     @Test fun `playback identity round trips delimiter bearing fields`() {
         val identity = M3uPlaybackIdentity(
+            provider = "Fixture Provider",
             url = "https://fixture.example/live.m3u8?token=a%7Cb",
             name = "News | International",
             logo = "https://fixture.example/logo%7Cwide.png",
@@ -167,12 +170,130 @@ class M3uPlaybackHeadersTest {
     }
 
     private fun validIdentity() = M3uPlaybackIdentity(
+        provider = "Fixture Provider",
         url = "https://fixture.example/live.m3u8",
         name = "Fixture channel",
         logo = "https://fixture.example/logo.png",
         userAgent = "Fixture-UA",
         referrer = "https://fixture.example/embed",
     )
+
+    @Test fun `playback identity rejects invalid explicit ports`() {
+        listOf(
+            "http://public.example:0/live.m3u8",
+            "http://public.example:65536/live.m3u8",
+            "http://public.example:99999/live.m3u8",
+        ).forEach { url ->
+            assertNull(validateM3uPlaybackIdentity(validIdentity().copy(url = url)))
+        }
+        assertEquals(
+            "http://public.example:65535/live.m3u8",
+            validateM3uPlaybackIdentity(
+                validIdentity().copy(url = "http://public.example:65535/live.m3u8"),
+            )?.url,
+        )
+    }
+
+    @Test fun `public address policy rejects special use ranges`() {
+        listOf(
+            "0.0.0.1",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "172.16.0.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.31.196.1",
+            "192.52.193.1",
+            "192.88.99.1",
+            "192.175.48.1",
+            "192.168.0.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::1",
+            "::ffff:127.0.0.1",
+            "2001::1",
+            "2001:db8::1",
+            "2002::1",
+            "3fff::1",
+            "fc00::1",
+            "fe80::1",
+            "ff02::1",
+        ).forEach { address ->
+            assertFalse("expected special-use address to be rejected: $address", isGloballyRoutableAddress(address))
+        }
+        listOf("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111").forEach { address ->
+            assertTrue("expected public address to be accepted: $address", isGloballyRoutableAddress(address))
+        }
+    }
+
+    @Test fun `playback DNS rejects any private or special answer`() {
+        val dns = PublicPlaybackDns { listOf(
+            java.net.InetAddress.getByName("8.8.8.8"),
+            java.net.InetAddress.getByName("127.0.0.1"),
+        ) }
+
+        assertThrows(M3uPlaybackIdentityException::class.java) { dns.lookup("public.example") }
+    }
+
+    @Test fun `playback DNS preserves only globally routable answers`() {
+        val expected = listOf(
+            java.net.InetAddress.getByName("8.8.8.8"),
+            java.net.InetAddress.getByName("2606:4700:4700::1111"),
+        )
+        val dns = PublicPlaybackDns { expected }
+
+        assertEquals(expected, dns.lookup("public.example"))
+    }
+
+    @Test fun `playback redirects allow public relative targets and reject unsafe targets`() {
+        assertEquals(
+            "https://public.example/live/segment.ts",
+            resolvePublicPlaybackRedirect(
+                "https://public.example/live/master.m3u8",
+                "segment.ts",
+            ),
+        )
+        listOf(
+            "http://127.0.0.1/admin",
+            "http://192.168.1.1/admin",
+            "http://[::1]/admin",
+            "http://public.example:99999/admin",
+            "file:///etc/passwd",
+        ).forEach { location ->
+            assertNull(
+                resolvePublicPlaybackRedirect("https://public.example/live/master.m3u8", location),
+            )
+        }
+    }
+
+    @Test fun `playback identity is bound to its provider`() {
+        val encoded = java.util.Base64.getEncoder().encodeToString(
+            encodeM3uPlaybackIdentity(validIdentity().copy(provider = "IPTV Spain")).toByteArray(),
+        )
+
+        assertEquals(
+            "IPTV Spain",
+            requireM3uPlaybackIdentityFromBase64(
+                encoded = encoded,
+                expectedProvider = "IPTV Spain",
+                decodeBase64 = java.util.Base64.getDecoder()::decode,
+                encodeBase64 = java.util.Base64.getEncoder()::encodeToString,
+            ).provider,
+        )
+        assertThrows(M3uPlaybackIdentityException::class.java) {
+            requireM3uPlaybackIdentityFromBase64(
+                encoded = encoded,
+                expectedProvider = "Pluto TV Es",
+                decodeBase64 = java.util.Base64.getDecoder()::decode,
+                encodeBase64 = java.util.Base64.getEncoder()::encodeToString,
+            )
+        }
+    }
 
     @Test fun `invalid remote playlist row is filtered without dropping valid neighbors`() {
         val identities = listOf(
@@ -226,5 +347,6 @@ class M3uPlaybackHeadersTest {
             ),
             video.headers,
         )
+        assertTrue(video.restrictToPublicNetwork)
     }
 }

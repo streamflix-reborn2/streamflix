@@ -59,6 +59,7 @@ object IptvOrgProvider : IptvProvider {
     private fun createId(channel: M3UChannel): String {
         val payload = encodeM3uPlaybackIdentity(
             M3uPlaybackIdentity(
+                provider = this.name,
                 url = channel.url,
                 name = channel.name,
                 logo = channel.logo,
@@ -72,6 +73,7 @@ object IptvOrgProvider : IptvProvider {
     private fun decodeIdentity(id: String): M3uPlaybackIdentity =
         requireM3uPlaybackIdentityFromBase64(
             encoded = id,
+            expectedProvider = name,
             legacyFieldCount = 4,
             decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
             encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
@@ -208,7 +210,6 @@ object IptvOrgProvider : IptvProvider {
     override suspend fun getVideo(server: Video.Server): Video {
         val (url, _, _) = decodeId(server.id)
         val customUA = getUAFromId(server.id)
-        Log.d(TAG, "🎬 Play: $url | UA: $customUA")
         return m3uPlaybackVideo(
             source = url,
             userAgent = customUA,
