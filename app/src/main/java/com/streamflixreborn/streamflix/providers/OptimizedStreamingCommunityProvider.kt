@@ -122,7 +122,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getMovie(id: String): Movie {
         syncDomainPreference()
         movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
-        val mutex = movieMutexes.computeIfAbsent(id) { Mutex() }
+        val mutex = mutexFor(movieMutexes, id)
         return mutex.withLock {
             movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
@@ -136,7 +136,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getTvShow(id: String): TvShow {
         syncDomainPreference()
         tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
-        val mutex = tvShowMutexes.computeIfAbsent(id) { Mutex() }
+        val mutex = mutexFor(tvShowMutexes, id)
         return mutex.withLock {
             tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
@@ -150,7 +150,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getEpisodesBySeason(seasonId: String): List<Episode> {
         syncDomainPreference()
         seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let { return it.value }
-        val mutex = seasonMutexes.computeIfAbsent(seasonId) { Mutex() }
+        val mutex = mutexFor(seasonMutexes, seasonId)
         return mutex.withLock {
             seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let {
                 return@withLock it.value
@@ -248,6 +248,15 @@ class OptimizedStreamingCommunityProvider(
         } else {
             delegate.rebuildService(preferredDomain)
         }
+    }
+
+    private fun mutexFor(
+        map: ConcurrentHashMap<String, Mutex>,
+        key: String,
+    ): Mutex {
+        map[key]?.let { return it }
+        val created = Mutex()
+        return map.putIfAbsent(key, created) ?: created
     }
 
     private fun clearCaches() {
