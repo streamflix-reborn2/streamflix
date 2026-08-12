@@ -115,6 +115,7 @@ class EpisodeViewHolder(
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(this)
         }
+        binding.ivEpisodeWatchedRibbon.visibility = if (episode.isWatched) View.VISIBLE else View.GONE
 
         binding.pbEpisodeProgress.apply {
             val watchHistory = episode.watchHistory
@@ -223,6 +224,7 @@ class EpisodeViewHolder(
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(this)
         }
+        binding.ivEpisodeWatchedRibbon.visibility = if (episode.isWatched) View.VISIBLE else View.GONE
 
         binding.pbEpisodeProgress.apply {
             val watchHistory = episode.watchHistory

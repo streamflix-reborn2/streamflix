@@ -20,6 +20,22 @@
         app:layout_constraintTop_toTopOf="parent"
         app:navGraph="@navigation/nav_main_graph_mobile" />
 
+    <ImageButton
+        android:id="@+id/btn_main_search"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/main_menu_search"
+        android:elevation="8dp"
+        android:padding="12dp"
+        android:src="@drawable/ic_search_white"
+        android:visibility="gone"
+        app:tint="@android:color/white"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bnv_main"
         android:layout_width="0dp"

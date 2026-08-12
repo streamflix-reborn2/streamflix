@@ -48,6 +48,7 @@
 
     <string name="home_swiper_watch_now">Regarder maintenant</string>
     <string name="home_continue_watching">Continuer à regarder</string>
+    <string name="home_recently_watched">Regardés récemment</string>
     <string name="home_favorite_movies">Films favoris</string>
     <string name="home_favorite_tv_shows">Séries TV favorites</string>
 
@@ -504,4 +505,6 @@
     <string name="settings_refresh_cache_confirm">Actualiser le cache ?</string>
     <string name="settings_refresh_cache_message">Cela rechargera l\'historique de visionnage et les données de l\'application depuis la base de données.</string>
     <string name="settings_refresh_cache_success">Cache actualisé avec succès</string>
+    <string name="supabase_instructions_title">Instructions</string>
+    <string name="supabase_instructions_summary">Ouvrir dans le navigateur le guide détaillé de configuration du compte et de la synchronisation Supabase</string>
 </resources>

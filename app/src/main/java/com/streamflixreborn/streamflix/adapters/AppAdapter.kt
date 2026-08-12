@@ -2,6 +2,7 @@ package com.streamflixreborn.streamflix.adapters
 
 import android.os.Parcelable
 import android.view.LayoutInflater
+import android.view.KeyEvent
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
@@ -41,6 +42,7 @@ import com.streamflixreborn.streamflix.databinding.ItemEpisodeContinueWatchingMo
 import com.streamflixreborn.streamflix.databinding.ItemEpisodeContinueWatchingTvBinding
 import com.streamflixreborn.streamflix.databinding.ItemEpisodeMobileBinding
 import com.streamflixreborn.streamflix.databinding.ItemEpisodeTvBinding
+import com.streamflixreborn.streamflix.databinding.ItemFavoriteSectionHeaderBinding
 import com.streamflixreborn.streamflix.databinding.ItemGenreGridMobileBinding
 import com.streamflixreborn.streamflix.databinding.ItemGenreGridTvBinding
 import com.streamflixreborn.streamflix.databinding.ItemLoadingBinding
@@ -66,10 +68,15 @@ import com.streamflixreborn.streamflix.models.People
 import com.streamflixreborn.streamflix.models.Provider
 import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
+import com.streamflixreborn.streamflix.fragments.favorites.FavoriteSectionHeader
 
 class AppAdapter(
     val items: MutableList<Item> = mutableListOf()
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    private companion object {
+        const val PAYLOAD_SELECTION = "selection"
+    }
 
     init {
         setHasStableIds(true)
@@ -80,6 +87,9 @@ class AppAdapter(
     var onTvShowClickListener: ((TvShow) -> Unit)? = null
     var onMovieLongClickListener: ((Movie) -> Unit)? = null
     var onTvShowLongClickListener: ((TvShow) -> Unit)? = null
+    var onMovieKeyListener: ((Movie, KeyEvent) -> Boolean)? = null
+    var onTvShowKeyListener: ((TvShow, KeyEvent) -> Boolean)? = null
+    var isItemSelectedListener: ((Item) -> Boolean)? = null
     var onGenreClickListener: ((Genre) -> Unit)? = null
     var onPeopleClickListener: ((People) -> Unit)? = null
     var onEpisodeClickListener: ((Episode) -> Unit)? = null
@@ -103,6 +113,8 @@ class AppAdapter(
         EPISODE_CONTINUE_WATCHING_TV_ITEM,
 
         FOOTER,
+
+        FAVORITE_SECTION_HEADER,
 
         GENRE_GRID_MOBILE_ITEM,
         GENRE_GRID_TV_ITEM,
@@ -228,6 +240,13 @@ class AppAdapter(
 
             Type.FOOTER -> FooterViewHolder(
                 footer!!.binding(parent)
+            )
+            Type.FAVORITE_SECTION_HEADER -> FavoriteSectionHeaderViewHolder(
+                ItemFavoriteSectionHeaderBinding.inflate(
+                    LayoutInflater.from(parent.context),
+                    parent,
+                    false,
+                )
             )
 
             Type.GENRE_GRID_MOBILE_ITEM -> GenreViewHolder(
@@ -517,17 +536,26 @@ class AppAdapter(
                 items[adjustedPosition] as Category,
                 onMovieClickListener,
                 onTvShowClickListener,
+                onMovieLongClickListener,
+                onTvShowLongClickListener,
             )
             is EpisodeViewHolder -> holder.bind(
                 items[adjustedPosition] as Episode
             ) // Tu original no pasaba listener, lo respeto
             is FooterViewHolder -> footer?.bind?.invoke(holder.binding)
+            is FavoriteSectionHeaderViewHolder -> holder.bind(
+                items[adjustedPosition] as FavoriteSectionHeader
+            )
             is GenreViewHolder -> holder.bind(
                 items[adjustedPosition] as Genre
             ) // Tu original no pasaba listener, lo respeto
             is HeaderViewHolder -> header?.bind?.invoke(holder.binding)
             is MovieViewHolder -> holder.bind(
-                items[adjustedPosition] as Movie
+                items[adjustedPosition] as Movie,
+                onMovieClickListener,
+                onMovieLongClickListener,
+                onMovieKeyListener,
+                isItemSelectedListener?.invoke(items[adjustedPosition]) == true,
             ) // Los listeners se manejan dentro del ViewHolder
             is PeopleViewHolder -> holder.bind(
                 items[adjustedPosition] as People
@@ -539,7 +567,11 @@ class AppAdapter(
                 items[adjustedPosition] as Season
             ) // Tu original no pasaba listener, lo respeto
             is TvShowViewHolder -> holder.bind(
-                items[adjustedPosition] as TvShow
+                items[adjustedPosition] as TvShow,
+                onTvShowClickListener,
+                onTvShowLongClickListener,
+                onTvShowKeyListener,
+                isItemSelectedListener?.invoke(items[adjustedPosition]) == true,
             ) // Los listeners se manejan dentro del ViewHolder
         }
 
@@ -551,6 +583,30 @@ class AppAdapter(
                 is TvShowViewHolder -> holder.childRecyclerView?.layoutManager?.onRestoreInstanceState(state)
             }
         }
+    }
+
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>,
+    ) {
+        if (PAYLOAD_SELECTION in payloads) {
+            val adjustedPosition = header?.let { position - 1 } ?: position
+            val selected = items.getOrNull(adjustedPosition)
+                ?.let { isItemSelectedListener?.invoke(it) }
+                ?: false
+            when (holder) {
+                is MovieViewHolder -> holder.setItemSelected(selected)
+                is TvShowViewHolder -> holder.setItemSelected(selected)
+                else -> super.onBindViewHolder(holder, position, payloads)
+            }
+            return
+        }
+        super.onBindViewHolder(holder, position, payloads)
+    }
+
+    fun notifyItemSelectionChanged(position: Int) {
+        if (position in items.indices) notifyItemChanged(position, PAYLOAD_SELECTION)
     }
 
     override fun getItemCount(): Int = items.size +
@@ -719,6 +775,42 @@ class AppAdapter(
         result.dispatchUpdatesTo(this)
     }
 
+    fun moveItem(fromPosition: Int, toPosition: Int) {
+        if (fromPosition !in items.indices || toPosition !in items.indices || fromPosition == toPosition) return
+
+        java.util.Collections.swap(items, fromPosition, toPosition)
+
+        itemIdentities = itemIdentities.toMutableList().also {
+            java.util.Collections.swap(it, fromPosition, toPosition)
+        }
+        val stableId = itemStableIds[fromPosition]
+        itemStableIds[fromPosition] = itemStableIds[toPosition]
+        itemStableIds[toPosition] = stableId
+
+        val fromState = states.remove(fromPosition)
+        val toState = states.remove(toPosition)
+        if (fromState != null) states[toPosition] = fromState
+        if (toState != null) states[fromPosition] = toState
+
+        notifyItemMoved(fromPosition, toPosition)
+    }
+
+    fun replaceItemOrder(newItems: List<Item>) {
+        if (newItems.size != items.size) return
+        newItems.forEachIndexed { targetIndex, desiredItem ->
+            var currentIndex = items.indexOfFirst { it === desiredItem }
+            if (currentIndex < 0) return
+            while (currentIndex > targetIndex) {
+                moveItem(currentIndex, currentIndex - 1)
+                currentIndex--
+            }
+            while (currentIndex < targetIndex) {
+                moveItem(currentIndex, currentIndex + 1)
+                currentIndex++
+            }
+        }
+    }
+
 
     fun <T : ViewBinding> setHeader(
         binding: (parent: ViewGroup) -> T,
@@ -757,6 +849,14 @@ class AppAdapter(
     ) : RecyclerView.ViewHolder(
         binding.root
     )
+
+    private class FavoriteSectionHeaderViewHolder(
+        private val binding: ItemFavoriteSectionHeaderBinding,
+    ) : RecyclerView.ViewHolder(binding.root) {
+        fun bind(header: FavoriteSectionHeader) {
+            binding.tvFavoriteSectionTitle.text = header.title
+        }
+    }
 
     private data class Header<T : ViewBinding>(
         val binding: (parent: ViewGroup) -> T,
@@ -816,6 +916,7 @@ class AppAdapter(
     private fun Item.baseIdentityKey(): String = when (this) {
         is Category -> "category:${name}"
         is Episode -> "episode:${id}"
+        is FavoriteSectionHeader -> "favorite-header:${section.key}"
         is Genre -> "genre:${id}"
         is Movie -> "movie:${id}"
         is People -> "people:${id}"

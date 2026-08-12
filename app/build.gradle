@@ -106,6 +106,8 @@ dependencies {
     implementation 'androidx.work:work-runtime-ktx:2.10.0'
     ksp 'com.github.bumptech.glide:ksp:5.0.0-rc01'
     implementation 'com.github.bumptech.glide:okhttp3-integration:5.0.0-rc01'
+    implementation 'com.caverock:androidsvg-aar:1.4'
+    implementation 'org.chromium.net:cronet-embedded:119.6045.31'
 
     implementation 'androidx.media3:media3-exoplayer:1.8.0'
     implementation 'androidx.media3:media3-exoplayer-dash:1.8.0'
@@ -138,6 +140,12 @@ dependencies {
 
     implementation("org.mozilla:rhino:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    implementation platform("io.github.jan-tennert.supabase:bom:3.2.2")
+    implementation "io.github.jan-tennert.supabase:auth-kt"
+    implementation "io.github.jan-tennert.supabase:postgrest-kt"
+    implementation "io.github.jan-tennert.supabase:realtime-kt"
+    implementation "io.ktor:ktor-client-okhttp:3.2.2"
+    testImplementation "junit:junit:4.13.2"
     implementation 'org.conscrypt:conscrypt-android:2.5.2'
     implementation "androidx.browser:browser:1.7.0"
     implementation "org.nanohttpd:nanohttpd:2.3.1"

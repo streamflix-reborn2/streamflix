@@ -42,13 +42,11 @@ object OpenSubtitles {
 
         FileInputStream(zip).use { fileInputStream ->
             GZIPInputStream(fileInputStream).use { gzipInputStream ->
-                FileOutputStream(subtitleFile).use { fileOutputStream ->
-                    val buffer = ByteArray(1024)
-                    var bytesRead: Int
-
-                    while (gzipInputStream.read(buffer).also { bytesRead = it } != -1) {
-                        fileOutputStream.write(buffer, 0, bytesRead)
-                    }
+                // Writing to file using source charset and UTF_8 output
+                val sourceCharset = getCharsetFromEncoding(subtitle.subEncoding)
+                val reader = gzipInputStream.bufferedReader(sourceCharset)
+                subtitleFile.writer(Charsets.UTF_8).use { writer ->
+                    reader.copyTo(writer)
                 }
             }
         }
@@ -74,10 +72,29 @@ object OpenSubtitles {
         )
         return service.search(
             params = params
-            .filterNotNullValues()
+                .filterNotNullValues()
                 .map { "${it.key}-${it.value}" }
                 .joinToString("/")
         )
+    }
+
+    // Function to get charset from opensubtitles metadata
+    private fun getCharsetFromEncoding(encoding: String?): java.nio.charset.Charset {
+        if (encoding.isNullOrBlank()) return Charsets.UTF_8 // Default fallback
+
+        return try {
+            when (encoding.uppercase()) {
+                "CP1256", "WINDOWS-1256" -> java.nio.charset.Charset.forName("Windows-1256") // Arabic
+                "CP1251", "WINDOWS-1251" -> java.nio.charset.Charset.forName("Windows-1251") // Cyrillic / Russian
+                "CP1252", "WINDOWS-1252", "ISO-8859-1" -> java.nio.charset.Charset.forName("Windows-1252") // Western European
+                "CP1254", "WINDOWS-1254" -> java.nio.charset.Charset.forName("Windows-1254") // Turkish
+                "CP1253", "WINDOWS-1253" -> java.nio.charset.Charset.forName("Windows-1253") // Greek
+                "UTF-8" -> Charsets.UTF_8
+                else -> java.nio.charset.Charset.forName(encoding) // Try loading dynamically
+            }
+        } catch (e: Exception) {
+            Charsets.UTF_8 // Fallback to UTF-8 if the charset name is unresolvable
+        }
     }
 
     object Params {

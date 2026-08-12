@@ -401,6 +401,76 @@
     </PreferenceScreen>
 
     <PreferenceScreen
+        android:key="screen_cloud_sync"
+        android:title="@string/cloud_sync_title"
+        android:summary="@string/cloud_sync_screen_summary"
+        android:widgetLayout="@layout/preference_widget_chevron"
+        app:iconSpaceReserved="false">
+
+        <PreferenceCategory
+            android:key="pc_supabase_config"
+            android:title="@string/supabase_config_category"
+            app:iconSpaceReserved="false">
+            <EditTextPreference
+                android:key="supabase_url"
+                android:title="@string/supabase_url_title"
+                android:summary="@string/supabase_url_summary"
+                android:inputType="textUri"
+                app:iconSpaceReserved="false" />
+            <EditTextPreference
+                android:key="supabase_public_key"
+                android:title="@string/supabase_public_key_title"
+                android:summary="@string/supabase_public_key_summary"
+                android:inputType="text"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="supabase_copy_sql"
+                android:title="@string/supabase_copy_sql_title"
+                android:summary="@string/supabase_copy_sql_summary"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="supabase_open_sql"
+                android:title="@string/supabase_open_sql_title"
+                android:summary="@string/supabase_open_sql_summary"
+                app:iconSpaceReserved="false" />
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            android:key="pc_cloud_account"
+            android:title="@string/cloud_sync_account_category"
+            app:iconSpaceReserved="false">
+            <Preference
+                android:key="supabase_instructions"
+                android:title="@string/supabase_instructions_title"
+                android:summary="@string/supabase_instructions_summary"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="cloud_account_status"
+                android:title="@string/cloud_sync_account_status"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="cloud_sign_in"
+                android:title="@string/cloud_sync_sign_in"
+                android:summary="@string/cloud_sync_sign_in_summary"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="cloud_sign_up"
+                android:title="@string/cloud_sync_sign_up"
+                android:summary="@string/cloud_sync_sign_up_summary"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="cloud_sign_out"
+                android:title="@string/cloud_sync_sign_out"
+                app:iconSpaceReserved="false" />
+            <Preference
+                android:key="cloud_sync_now"
+                android:title="@string/cloud_sync_now"
+                android:summary="@string/cloud_sync_now_summary"
+                app:iconSpaceReserved="false" />
+        </PreferenceCategory>
+    </PreferenceScreen>
+
+    <PreferenceScreen
         android:key="screen_backup"
         android:title="@string/backup_category_title"
         android:summary="@string/settings_screen_backup_summary"

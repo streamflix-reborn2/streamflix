@@ -10,6 +10,8 @@ import org.conscrypt.Conscrypt
 import com.streamflixreborn.streamflix.database.AppDatabase
 import com.streamflixreborn.streamflix.providers.AniWorldProvider
 import com.streamflixreborn.streamflix.providers.SerienStreamProvider
+import com.streamflixreborn.streamflix.sync.CloudSyncManager
+import com.streamflixreborn.streamflix.sync.SupabaseProvider
 import com.streamflixreborn.streamflix.utils.AppLanguageManager
 import com.streamflixreborn.streamflix.utils.ArtworkRepairScheduler
 import com.streamflixreborn.streamflix.utils.CacheUtils
@@ -83,6 +85,8 @@ class StreamFlixApp : Application() {
 
         applicationScope.launch(Dispatchers.IO) {
             AppDatabase.setup(appContext)
+            SupabaseProvider.initialize(appContext)
+            runCatching { CloudSyncManager.initialize(appContext) }
             SerienStreamProvider.initialize(appContext)
             AniWorldProvider.initialize(appContext)
             ArtworkRepairScheduler.schedule(appContext, UserPreferences.currentProvider)

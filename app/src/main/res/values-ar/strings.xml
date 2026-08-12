@@ -44,6 +44,7 @@
 
 	<string name="home_swiper_watch_now">شاهد الآن</string>
 	<string name="home_continue_watching">متابعة المشاهدة</string>
+	<string name="home_recently_watched">شوهد مؤخرًا</string>
 	<string name="home_favorite_movies">الأفلام المفضلة</string>
 	<string name="home_favorite_tv_shows">المسلسلات المفضلة</string>
 
@@ -497,4 +498,6 @@
     <string name="settings_refresh_cache_confirm">تحديث ذاكرة التخزين المؤقت؟</string>
     <string name="settings_refresh_cache_message">سيؤدي ذلك إلى إعادة تحميل سجل المشاهدة وبيانات التطبيق من قاعدة البيانات.</string>
     <string name="settings_refresh_cache_success">تم تحديث ذاكرة التخزين المؤقت بنجاح</string>
+    <string name="supabase_instructions_title">التعليمات</string>
+    <string name="supabase_instructions_summary">فتح الدليل التفصيلي لإعداد حساب ومزامنة Supabase في المتصفح</string>
 </resources>

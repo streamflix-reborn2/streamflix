@@ -1,6 +1,9 @@
 package com.streamflixreborn.streamflix.adapters.viewholders
 
 import android.content.Intent
+import android.graphics.drawable.PictureDrawable
+import android.view.View
+import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
 import com.bumptech.glide.Glide
@@ -54,13 +57,7 @@ class ProviderViewHolder(
         
         binding.ivProviderFavorite.visibility = if (provider.isFavorite) android.view.View.VISIBLE else android.view.View.GONE
 
-        Glide.with(context)
-            .load(provider.logo.takeIf { it.isNotEmpty() }
-                ?: R.drawable.ic_provider_default_logo)
-            .error(R.drawable.ic_provider_default_logo)
-            .fitCenter()
-            .transition(DrawableTransitionOptions.withCrossFade())
-            .into(binding.ivProviderLogo)
+        loadProviderLogo(binding.ivProviderLogo)
 
         binding.tvProviderName.text = provider.name
 
@@ -91,18 +88,35 @@ class ProviderViewHolder(
         
         binding.ivProviderFavorite.visibility = if (provider.isFavorite) android.view.View.VISIBLE else android.view.View.GONE
 
-        Glide.with(context)
-            .load(provider.logo.takeIf { it.isNotEmpty() }
-                ?: R.drawable.ic_provider_default_logo)
-            .error(R.drawable.ic_provider_default_logo)
-            .transition(DrawableTransitionOptions.withCrossFade())
-            .into(binding.ivProviderLogo)
+        loadProviderLogo(binding.ivProviderLogo)
 
         binding.tvProviderName.text = provider.name
 
         binding.tvProviderLanguage.text = Locale.forLanguageTag(provider.language)
             .let { it.getDisplayLanguage(it) }
             .replaceFirstChar { it.titlecase() }
+    }
+
+    private fun loadProviderLogo(imageView: ImageView) {
+        val logo = provider.logo.takeIf { it.isNotEmpty() }
+        val isSvg = logo?.substringBefore("?")?.endsWith(".svg", ignoreCase = true) == true
+
+        if (isSvg) {
+            imageView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            Glide.with(context)
+                .`as`(PictureDrawable::class.java)
+                .load(logo)
+                .error(R.drawable.ic_provider_default_logo)
+                .into(imageView)
+        } else {
+            imageView.setLayerType(View.LAYER_TYPE_NONE, null)
+            Glide.with(context)
+                .load(logo ?: R.drawable.ic_provider_default_logo)
+                .error(R.drawable.ic_provider_default_logo)
+                .fitCenter()
+                .transition(DrawableTransitionOptions.withCrossFade())
+                .into(imageView)
+        }
     }
     
     private fun toggleFavorite(provider: Provider) {

@@ -29,9 +29,15 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONTokener
 import kotlin.coroutines.resume
 
 class WebViewResolver(private val context: Context) {
+
+    private companion object {
+        private const val INITIAL_SCALE = 85
+        private const val PAGE_ZOOM = "0.85"
+    }
 
     data class Result(
         val html: String,
@@ -43,7 +49,7 @@ class WebViewResolver(private val context: Context) {
     private var dialog: AlertDialog? = null
     private val mutex = Mutex()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val TAG = "Cine24hBypass"
+    private val TAG = "WebviewResolver"
 
     private var cursorX = 0f
     private var cursorY = 0f
@@ -52,6 +58,7 @@ class WebViewResolver(private val context: Context) {
     private var loginKeyboardPrimed = false
     private var deferredLoadUrl: String? = null
     private var deferredLoadHeaders: Map<String, String> = emptyMap()
+    private var lastMobileZoomUrl: String? = null
     private val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     private val activityContext: Activity?
         get() = context.findActivity() ?: StreamFlixApp.currentActivity
@@ -68,7 +75,15 @@ class WebViewResolver(private val context: Context) {
         pageReadyScriptProvider: ((currentUrl: String, html: String, cookies: String) -> String?)? = null,
         showImmediately: Boolean = false,
     ): String {
-        return getResult(url, headers, completion, shouldAllowNavigation, null, pageReadyScriptProvider, showImmediately).html
+        return getResult(
+            url,
+            headers,
+            completion,
+            shouldAllowNavigation,
+            null,
+            pageReadyScriptProvider,
+            showImmediately
+        ).html
     }
 
     suspend fun getResult(
@@ -86,7 +101,16 @@ class WebViewResolver(private val context: Context) {
         val result = withTimeoutOrNull(120000) {
             suspendCancellableCoroutine { continuation ->
                 mainHandler.post {
-                    setupWebView(url, headers, completion, shouldAllowNavigation, valueScript, pageReadyScriptProvider, showImmediately, continuation)
+                    setupWebView(
+                        url,
+                        headers,
+                        completion,
+                        shouldAllowNavigation,
+                        valueScript,
+                        pageReadyScriptProvider,
+                        showImmediately,
+                        continuation
+                    )
                 }
                 continuation.invokeOnCancellation { cleanup() }
             }
@@ -129,9 +153,13 @@ class WebViewResolver(private val context: Context) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 loadWithOverviewMode = true
                 useWideViewPort = true
+                setSupportZoom(true)
+                builtInZoomControls = true
+                displayZoomControls = false
                 javaScriptCanOpenWindowsAutomatically = false
                 setSupportMultipleWindows(false)
             }
+            setInitialScale(INITIAL_SCALE)
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -174,9 +202,17 @@ class WebViewResolver(private val context: Context) {
 
                 override fun onPageFinished(view: WebView?, currentUrl: String?) {
                     Log.d(TAG, "[WebView] onPageFinished: $currentUrl")
+                    applyMobilePageZoomOnce(view, currentUrl)
                     mainHandler.postDelayed({
                         if (webView != null) {
-                            checkChallengeStatus(view, currentUrl ?: url, completion, continuation, valueScript, pageReadyScriptProvider)
+                            checkChallengeStatus(
+                                view,
+                                currentUrl ?: url,
+                                completion,
+                                continuation,
+                                valueScript,
+                                pageReadyScriptProvider
+                            )
                         }
                     }, 1500)
                 }
@@ -191,6 +227,24 @@ class WebViewResolver(private val context: Context) {
         } else {
             webView?.loadUrl(url, headers)
         }
+    }
+
+    private fun applyMobilePageZoomOnce(view: WebView?, currentUrl: String?) {
+        if (view == null || currentUrl.isNullOrBlank() || lastMobileZoomUrl == currentUrl) return
+        lastMobileZoomUrl = currentUrl
+        view.evaluateJavascript(
+            """
+                (function() {
+                    const zoom = '$PAGE_ZOOM';
+                    document.documentElement.style.zoom = zoom;
+                    if (document.body) {
+                        document.body.style.zoom = zoom;
+                    }
+                    return zoom;
+                })();
+            """.trimIndent(),
+            null
+        )
     }
 
     private fun checkChallengeStatus(
@@ -208,8 +262,7 @@ class WebViewResolver(private val context: Context) {
         val hasClearance = cookies.contains("cf_clearance")
 
         view?.evaluateJavascript("(function() { return document.documentElement.innerHTML; })();") { html ->
-            val cleanHtml = html?.trim()?.removeSurrounding("\"")
-                ?.replace("\\u003C", "<")?.replace("\\\"", "\"")?.replace("\\n", "\n") ?: ""
+            val cleanHtml = decodeJavascriptValue(html).orEmpty()
 
             val isChallenge = challengeKeywords.any { cleanHtml.contains(it, ignoreCase = true) }
             val hasContent = cleanHtml.contains("article") || cleanHtml.contains("iframe") ||
@@ -228,7 +281,10 @@ class WebViewResolver(private val context: Context) {
                 view?.evaluateJavascript(pageReadyScript, null)
             }
 
-            Log.d(TAG, "[WebView] Status -> Challenge: $isChallenge, Content: $hasContent, Clearance: $hasClearance, Polling: $pollingCount")
+            Log.d(
+                TAG,
+                "[WebView] Status -> Challenge: $isChallenge, Content: $hasContent, Clearance: $hasClearance, Polling: $pollingCount"
+            )
 
             // Se rileviamo sblocco, chiudiamo tutto subito
             if (success) {
@@ -249,7 +305,14 @@ class WebViewResolver(private val context: Context) {
             pollingCount++
             if (pollingCount < 80) {
                 mainHandler.postDelayed({
-                    checkChallengeStatus(view, currentUrl, completion, continuation, valueScript, pageReadyScriptProvider)
+                    checkChallengeStatus(
+                        view,
+                        currentUrl,
+                        completion,
+                        continuation,
+                        valueScript,
+                        pageReadyScriptProvider
+                    )
                 }, 2000)
             } else {
                 Log.w(TAG, "[WebView] Max polling reached")
@@ -290,6 +353,15 @@ class WebViewResolver(private val context: Context) {
         }
     }
 
+    private fun decodeJavascriptValue(value: String?): String? {
+        val encoded = value?.trim()?.takeIf { it.isNotEmpty() && it != "null" } ?: return null
+        return when (val decoded = runCatching { JSONTokener(encoded).nextValue() }.getOrNull()) {
+            is String -> decoded
+            null -> encoded.removeSurrounding("\"")
+            else -> decoded.toString()
+        }
+    }
+
     private fun showVisibleChallenge(continuation: kotlinx.coroutines.CancellableContinuation<Result>) {
         if (dialog != null || webView == null) return
         mainHandler.post {
@@ -300,12 +372,24 @@ class WebViewResolver(private val context: Context) {
                     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                         if (event.action == KeyEvent.ACTION_DOWN) {
                             if (isTv) {
-                                val step = 45f
+                                val step = 30f
                                 when (event.keyCode) {
-                                    KeyEvent.KEYCODE_DPAD_UP -> { cursorY -= step; updateCursorPosition(); return true }
-                                    KeyEvent.KEYCODE_DPAD_DOWN -> { cursorY += step; updateCursorPosition(); return true }
-                                    KeyEvent.KEYCODE_DPAD_LEFT -> { cursorX -= step; updateCursorPosition(); return true }
-                                    KeyEvent.KEYCODE_DPAD_RIGHT -> { cursorX += step; updateCursorPosition(); return true }
+                                    KeyEvent.KEYCODE_DPAD_UP -> {
+                                        cursorY -= step; updateCursorPosition(); return true
+                                    }
+
+                                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                        cursorY += step; updateCursorPosition(); return true
+                                    }
+
+                                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                        cursorX -= step; updateCursorPosition(); return true
+                                    }
+
+                                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                        cursorX += step; updateCursorPosition(); return true
+                                    }
+
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                                         Log.d(TAG, "[WebView] TV OK Key -> Simulating Mouse")
                                         simulateHumanMouseClick()
@@ -396,18 +480,6 @@ class WebViewResolver(private val context: Context) {
                 }
                 Log.d(TAG, "[WebView] Challenge Dialog DISPLAYED (isTv: $isTv)")
 
-                if (isTv) {
-                    val pendingUrl = deferredLoadUrl
-                    if (!pendingUrl.isNullOrBlank()) {
-                        val pendingHeaders = deferredLoadHeaders
-                        deferredLoadUrl = null
-                        deferredLoadHeaders = emptyMap()
-                        webView?.post {
-                            webView?.loadUrl(pendingUrl, pendingHeaders)
-                        }
-                    }
-                }
-
                 if (!isTv) {
                     dialog?.window?.setSoftInputMode(
                         WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
@@ -417,6 +489,16 @@ class WebViewResolver(private val context: Context) {
                     webView?.post {
                         webView?.requestFocusFromTouch()
                         showSoftKeyboard(webView)
+                    }
+                }
+
+                val pendingUrl = deferredLoadUrl
+                if (!pendingUrl.isNullOrBlank()) {
+                    val pendingHeaders = deferredLoadHeaders
+                    deferredLoadUrl = null
+                    deferredLoadHeaders = emptyMap()
+                    webView?.post {
+                        webView?.loadUrl(pendingUrl, pendingHeaders)
                     }
                 }
             } catch (e: Exception) {
@@ -473,15 +555,60 @@ class WebViewResolver(private val context: Context) {
             val propM = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE }
             val coordM = MotionEvent.PointerCoords().apply { x = relX; y = relY; pressure = 1f; size = 1f }
 
-            val hover = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_HOVER_MOVE, 1, arrayOf(propM), arrayOf(coordM), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
+            val hover = MotionEvent.obtain(
+                downTime,
+                downTime,
+                MotionEvent.ACTION_HOVER_MOVE,
+                1,
+                arrayOf(propM),
+                arrayOf(coordM),
+                0,
+                0,
+                1f,
+                1f,
+                0,
+                0,
+                InputDevice.SOURCE_MOUSE,
+                0
+            )
             wv.dispatchGenericMotionEvent(hover); hover.recycle()
 
-            val eventDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 1, arrayOf(propM), arrayOf(coordM), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
+            val eventDown = MotionEvent.obtain(
+                downTime,
+                downTime,
+                MotionEvent.ACTION_DOWN,
+                1,
+                arrayOf(propM),
+                arrayOf(coordM),
+                0,
+                0,
+                1f,
+                1f,
+                0,
+                0,
+                InputDevice.SOURCE_MOUSE,
+                0
+            )
             wv.dispatchTouchEvent(eventDown)
 
             mainHandler.postDelayed({
                 coordM.x += 1f; coordM.y += 1f
-                val eventUp = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, 1, arrayOf(propM), arrayOf(coordM), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
+                val eventUp = MotionEvent.obtain(
+                    downTime,
+                    SystemClock.uptimeMillis(),
+                    MotionEvent.ACTION_UP,
+                    1,
+                    arrayOf(propM),
+                    arrayOf(coordM),
+                    0,
+                    0,
+                    1f,
+                    1f,
+                    0,
+                    0,
+                    InputDevice.SOURCE_MOUSE,
+                    0
+                )
                 wv.dispatchTouchEvent(eventUp)
                 eventDown.recycle(); eventUp.recycle()
                 CookieManager.getInstance().flush()
@@ -502,7 +629,8 @@ class WebViewResolver(private val context: Context) {
                 webView = null
                 virtualCursor = null
                 Log.d(TAG, "[WebView] Closed")
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+            }
         }
 
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -512,3 +640,4 @@ class WebViewResolver(private val context: Context) {
         }
     }
 }
+

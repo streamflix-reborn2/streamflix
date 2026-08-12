@@ -24,7 +24,7 @@ import com.streamflixreborn.streamflix.utils.UserPreferences
         Season::class,
         TvShow::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -53,6 +53,9 @@ abstract class AppDatabase : RoomDatabase() {
                 .replace("__+".toRegex(), "_") // Sostituisce doppie underscore con una singola
                 .trim('_') // Rimuove underscore iniziale/finale
         }
+
+        fun databaseNameFor(providerName: String): String =
+            "${sanitizeProviderName(providerName)}.db"
 
         fun setup(context: Context) {
             if (UserPreferences.currentProvider == null) return
@@ -104,6 +107,7 @@ abstract class AppDatabase : RoomDatabase() {
                 .addMigrations(MIGRATION_5_6)
                 .addMigrations(MIGRATION_6_7)
                 .addMigrations(MIGRATION_7_8)
+                .addMigrations(MIGRATION_8_9)
                 .build()
         }
 
@@ -180,6 +184,59 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // No SQL changes needed as indices were already created in previous migrations 
                 // but are now formally declared in Entity classes, requiring a version bump.
+            }
+        }
+
+        private val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE movies ADD COLUMN lastPlayedAtMillis INTEGER")
+                db.execSQL("ALTER TABLE tv_shows ADD COLUMN lastPlayedAtMillis INTEGER")
+                db.execSQL("ALTER TABLE tv_shows ADD COLUMN lastPlayedEpisodeId TEXT")
+
+                db.execSQL(
+                    """
+                    UPDATE movies
+                    SET lastPlayedAtMillis = CASE
+                        WHEN lastEngagementTimeUtcMillis IS NOT NULL
+                             AND COALESCE(lastPlaybackPositionMillis, 0) > 0
+                            THEN lastEngagementTimeUtcMillis
+                        WHEN watchedDate IS NOT NULL
+                            THEN CAST(strftime('%s', watchedDate) AS INTEGER) * 1000
+                        ELSE NULL
+                    END
+                    """.trimIndent()
+                )
+
+                val episodePlayedAt = """
+                    CASE
+                        WHEN e.lastEngagementTimeUtcMillis IS NOT NULL
+                             AND COALESCE(e.lastPlaybackPositionMillis, 0) > 0
+                            THEN e.lastEngagementTimeUtcMillis
+                        WHEN e.watchedDate IS NOT NULL
+                            THEN CAST(strftime('%s', e.watchedDate) AS INTEGER) * 1000
+                        ELSE NULL
+                    END
+                """.trimIndent()
+                val recentEpisode = """
+                    SELECT e.id
+                    FROM episodes e
+                    WHERE e.tvShow = tv_shows.id
+                      AND ($episodePlayedAt) IS NOT NULL
+                    ORDER BY ($episodePlayedAt) DESC
+                    LIMIT 1
+                """.trimIndent()
+
+                db.execSQL("UPDATE tv_shows SET lastPlayedEpisodeId = ($recentEpisode)")
+                db.execSQL(
+                    """
+                    UPDATE tv_shows
+                    SET lastPlayedAtMillis = (
+                        SELECT $episodePlayedAt
+                        FROM episodes e
+                        WHERE e.id = tv_shows.lastPlayedEpisodeId
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }

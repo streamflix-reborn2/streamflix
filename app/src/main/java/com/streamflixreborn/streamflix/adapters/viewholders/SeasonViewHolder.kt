@@ -1,6 +1,7 @@
 package com.streamflixreborn.streamflix.adapters.viewholders
 
 import android.view.animation.AnimationUtils
+import androidx.core.view.isVisible
 import androidx.navigation.findNavController
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
@@ -59,6 +60,7 @@ class SeasonViewHolder(
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(this)
         }
+        binding.ivSeasonWatchedRibbon.isVisible = season.isFullyWatched()
 
         binding.tvSeasonTitle.text = season.displayTitle()
     }
@@ -98,11 +100,16 @@ class SeasonViewHolder(
                 .transition(DrawableTransitionOptions.withCrossFade())
                 .into(this)
         }
+        binding.ivSeasonWatchedRibbon.isVisible = season.isFullyWatched()
 
         binding.tvSeasonTitle.text = season.displayTitle()
     }
 
     private fun Season.displayTitle(): String {
         return title ?: context.getString(R.string.season_number, number)
+    }
+
+    private fun Season.isFullyWatched(): Boolean {
+        return episodes.isNotEmpty() && episodes.all { it.isWatched }
     }
 }

@@ -36,6 +36,12 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE lastEngagementTimeUtcMillis IS NOT NULL ORDER BY lastEngagementTimeUtcMillis DESC")
     fun getWatchingMovies(): Flow<List<Movie>>
 
+    @Query("SELECT * FROM movies WHERE lastPlayedAtMillis IS NOT NULL ORDER BY lastPlayedAtMillis DESC LIMIT 10")
+    fun getRecentlyWatched(): Flow<List<Movie>>
+
+    @Query("UPDATE movies SET lastPlayedAtMillis = :playedAtMillis WHERE id = :id")
+    fun markRecentlyWatched(id: String, playedAtMillis: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(movie: Movie)
 
@@ -47,6 +53,18 @@ interface MovieDao {
 
     @Query("DELETE FROM movies")
     fun deleteAll()
+
+    @Query("""
+        UPDATE movies SET
+            isFavorite = 0,
+            favoritedAtMillis = NULL,
+            isWatched = 0,
+            watchedDate = NULL,
+            lastEngagementTimeUtcMillis = NULL,
+            lastPlaybackPositionMillis = NULL,
+            durationMillis = NULL
+    """)
+    fun clearUserState()
 
     @Transaction
     fun save(movie: Movie) {
@@ -94,6 +112,7 @@ interface MovieDao {
             updated.isWatched = existing.isWatched
             updated.watchedDate = existing.watchedDate
             updated.watchHistory = existing.watchHistory
+            updated.lastPlayedAtMillis = existing.lastPlayedAtMillis
             update(updated)
         } else {
             movie.isFavorite = favorite
