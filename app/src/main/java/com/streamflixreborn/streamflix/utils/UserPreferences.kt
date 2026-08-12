@@ -15,6 +15,7 @@ import com.streamflixreborn.streamflix.providers.TmdbProvider
 import androidx.core.content.edit
 import com.streamflixreborn.streamflix.database.AppDatabase
 import org.json.JSONObject
+import org.json.JSONArray
 
 object UserPreferences {
 
@@ -484,6 +485,42 @@ object UserPreferences {
         set(value) {
             Key.FAVORITE_PROVIDERS.setStringSet(value)
         }
+
+    fun getFavoriteCategoryOrder(providerName: String): List<String> {
+        val key = "FAVORITE_CATEGORY_ORDER_$providerName"
+        val saved = prefs.getString(key, null)
+            ?.split(',')
+            ?.filter { it == "movies" || it == "tv_shows" }
+            .orEmpty()
+        return (saved + listOf("movies", "tv_shows")).distinct()
+    }
+
+    fun setFavoriteCategoryOrder(providerName: String, order: List<String>) {
+        val normalized = (order.filter { it == "movies" || it == "tv_shows" } +
+            listOf("movies", "tv_shows")).distinct()
+        prefs.edit { putString("FAVORITE_CATEGORY_ORDER_$providerName", normalized.joinToString(",")) }
+    }
+
+    fun getFavoriteItemOrder(providerName: String, section: String): List<String> {
+        val raw = prefs.getString("FAVORITE_ITEM_ORDER_${providerName}_$section", null) ?: return emptyList()
+        return runCatching {
+            val json = JSONArray(raw)
+            List(json.length()) { index -> json.getString(index) }
+        }.getOrDefault(emptyList())
+    }
+
+    fun setFavoriteItemOrder(providerName: String, section: String, order: List<String>) {
+        prefs.edit {
+            putString("FAVORITE_ITEM_ORDER_${providerName}_$section", JSONArray(order).toString())
+        }
+    }
+
+    fun getFavoriteSortMode(providerName: String): String =
+        prefs.getString("FAVORITE_SORT_MODE_$providerName", "manual") ?: "manual"
+
+    fun setFavoriteSortMode(providerName: String, mode: String) {
+        prefs.edit { putString("FAVORITE_SORT_MODE_$providerName", mode) }
+    }
 
     private enum class Key {
         APP_LAYOUT,

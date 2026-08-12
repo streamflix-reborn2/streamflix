@@ -23,7 +23,7 @@
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:layout_margin="4dp"
-        android:src="@android:drawable/btn_star_big_on"
+        android:src="@drawable/ic_favorite_badge"
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="@id/iv_provider_logo"
         app:layout_constraintTop_toTopOf="@id/iv_provider_logo"

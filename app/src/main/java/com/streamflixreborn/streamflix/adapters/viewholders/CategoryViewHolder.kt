@@ -58,14 +58,16 @@ class CategoryViewHolder(
     fun bind(
         category: Category,
         onMovieClick: ((Movie) -> Unit)? = null,
-        onTvShowClick: ((TvShow) -> Unit)? = null
+        onTvShowClick: ((TvShow) -> Unit)? = null,
+        onMovieLongClick: ((Movie) -> Unit)? = null,
+        onTvShowLongClick: ((TvShow) -> Unit)? = null,
     ) {
         this.category = category
 
         when (_binding) {
-            is ItemCategoryMobileBinding -> displayMobileItem(_binding, onMovieClick, onTvShowClick)
-            is ItemCategoryTvBinding -> displayTvItem(_binding, onMovieClick, onTvShowClick)
-            is ContentCategorySwiperMobileBinding -> displayMobileSwiper(_binding, onMovieClick, onTvShowClick)
+            is ItemCategoryMobileBinding -> displayMobileItem(_binding, onMovieClick, onTvShowClick, onMovieLongClick, onTvShowLongClick)
+            is ItemCategoryTvBinding -> displayTvItem(_binding, onMovieClick, onTvShowClick, onMovieLongClick, onTvShowLongClick)
+            is ContentCategorySwiperMobileBinding -> displayMobileSwiper(_binding, onMovieClick, onTvShowClick, onMovieLongClick, onTvShowLongClick)
             is ContentCategorySwiperTvBinding -> displayTvSwiper(_binding)
         }
     }
@@ -73,7 +75,9 @@ class CategoryViewHolder(
     private fun displayMobileItem(
         binding: ItemCategoryMobileBinding,
         onMovieClick: ((Movie) -> Unit)?,
-        onTvShowClick: ((TvShow) -> Unit)?
+        onTvShowClick: ((TvShow) -> Unit)?,
+        onMovieLongClick: ((Movie) -> Unit)?,
+        onTvShowLongClick: ((TvShow) -> Unit)?,
     ) {
         binding.tvCategoryTitle.text = category.name
 
@@ -82,6 +86,8 @@ class CategoryViewHolder(
             categoryAdapter.apply {
                 this.onMovieClickListener = onMovieClick
                 this.onTvShowClickListener = onTvShowClick
+                this.onMovieLongClickListener = onMovieLongClick
+                this.onTvShowLongClickListener = onTvShowLongClick
                 submitList(category.list)
             }
             if (itemDecorationCount == 0) {
@@ -93,7 +99,9 @@ class CategoryViewHolder(
     private fun displayTvItem(
         binding: ItemCategoryTvBinding,
         onMovieClick: ((Movie) -> Unit)?,
-        onTvShowClick: ((TvShow) -> Unit)?
+        onTvShowClick: ((TvShow) -> Unit)?,
+        onMovieLongClick: ((Movie) -> Unit)?,
+        onTvShowLongClick: ((TvShow) -> Unit)?,
     ) {
         binding.tvCategoryTitle.text = category.name
         binding.hgvCategory.apply {
@@ -103,6 +111,8 @@ class CategoryViewHolder(
             categoryAdapter.apply {
                 this.onMovieClickListener = onMovieClick
                 this.onTvShowClickListener = onTvShowClick
+                this.onMovieLongClickListener = onMovieLongClick
+                this.onTvShowLongClickListener = onTvShowLongClick
                 submitList(category.list)
             }
             setItemSpacing(category.itemSpacing)
@@ -116,7 +126,9 @@ class CategoryViewHolder(
     private fun displayMobileSwiper(
         binding: ContentCategorySwiperMobileBinding,
         onMovieClick: ((Movie) -> Unit)?,
-        onTvShowClick: ((TvShow) -> Unit)?
+        onTvShowClick: ((TvShow) -> Unit)?,
+        onMovieLongClick: ((Movie) -> Unit)?,
+        onTvShowLongClick: ((TvShow) -> Unit)?,
     ) {
         binding.tvCategoryTitle.text = category.name
         val handler = Handler(Looper.getMainLooper())
@@ -133,6 +145,8 @@ class CategoryViewHolder(
             adapter = AppAdapter().apply {
                 this.onMovieClickListener = onMovieClick
                 this.onTvShowClickListener = onTvShowClick
+                this.onMovieLongClickListener = onMovieLongClick
+                this.onTvShowLongClickListener = onTvShowLongClick
                 submitList(category.list)
                 post { (adapter as AppAdapter).submitList(items) }
             }

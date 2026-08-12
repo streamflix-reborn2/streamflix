@@ -17,6 +17,7 @@ import com.streamflixreborn.streamflix.R
 import com.streamflixreborn.streamflix.utils.OpenSubtitles
 import com.streamflixreborn.streamflix.utils.mediaServers
 import com.streamflixreborn.streamflix.utils.SubDL
+import com.streamflixreborn.streamflix.utils.SubtitleOffset
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.dp
 import com.streamflixreborn.streamflix.utils.findClosest
@@ -87,6 +88,7 @@ abstract class PlayerSettingsView @JvmOverloads constructor(
         QUALITY,
         AUDIO,
         SUBTITLES,
+        SUBTITLE_OFFSET,
         CAPTION_STYLE,
         CAPTION_STYLE_FONT_COLOR,
         CAPTION_STYLE_TEXT_SIZE,
@@ -194,6 +196,14 @@ abstract class PlayerSettingsView @JvmOverloads constructor(
 
                 else -> {}
             }
+        }
+
+    protected var onSubtitleOffsetSelected: ((Settings.Subtitle.Offset.Value) -> Unit) =
+        fun(offset) {
+            val player = player ?: return
+            SubtitleOffset.offsetMs = offset.milliseconds
+            // Reset the text renderer so cues discarded under the previous offset are available.
+            player.seekTo(player.currentPosition)
         }
 
     protected var onCaptionStyleChanged: ((CaptionStyleCompat) -> Unit) =
@@ -703,6 +713,7 @@ abstract class PlayerSettingsView @JvmOverloads constructor(
                 fun init(player: ExoPlayer, resources: Resources) {
                     list.clear()
                     list.add(Style)
+                    list.add(Offset)
                     list.add(None)
                     list.addAll(
                         player.currentTracks.groups
@@ -730,6 +741,19 @@ abstract class PlayerSettingsView @JvmOverloads constructor(
                     if (UserPreferences.subdlApiKey.isNotEmpty()) {
                         list.add(SubDLSubtitles)
                     }
+                }
+            }
+
+            data object Offset : Subtitle() {
+                val list: List<Item> = (-10_000L..10_000L step 500L).map(::Value)
+                val selected: Value
+                    get() = list.filterIsInstance<Value>()
+                        .find { it.milliseconds == SubtitleOffset.offsetMs }
+                        ?: Value(0)
+
+                class Value(val milliseconds: Long) : Item {
+                    val isSelected: Boolean
+                        get() = milliseconds == SubtitleOffset.offsetMs
                 }
             }
 

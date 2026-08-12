@@ -4,11 +4,6 @@
     tools:showIn="@layout/activity_main_mobile">
 
     <item
-        android:id="@id/search"
-        android:icon="@drawable/ic_menu_search"
-        android:title="@string/main_menu_search" />
-
-    <item
         android:id="@id/home"
         android:icon="@drawable/ic_menu_home"
         android:title="@string/main_menu_home" />
@@ -22,6 +17,11 @@
         android:id="@id/tv_shows"
         android:icon="@drawable/ic_menu_tv"
         android:title="@string/main_menu_tv_shows" />
+
+    <item
+        android:id="@id/favorites"
+        android:icon="@drawable/ic_favorite_enable"
+        android:title="@string/main_menu_favorites" />
 
     <item
         android:id="@id/settings"

@@ -71,6 +71,42 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE tvShow = :tvShowId ORDER BY season, number")
     fun getByTvShowIdAsFlow(tvShowId: String): Flow<List<Episode>>
 
+    @Query(
+        """
+        SELECT
+            EXISTS (
+                SELECT 1
+                FROM seasons season
+                WHERE season.tvShow = :tvShowId
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM seasons season
+                WHERE season.tvShow = :tvShowId
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM episodes episode
+                          WHERE episode.season = season.id
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM episodes episode
+                          WHERE episode.season = season.id
+                            AND episode.isWatched = 0
+                      )
+                  )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM episodes episode
+                WHERE episode.tvShow = :tvShowId
+                  AND episode.isWatched = 0
+            )
+        """
+    )
+    fun isTvShowFullyWatchedAsFlow(tvShowId: String): Flow<Boolean>
+
     @Query("SELECT * FROM episodes WHERE season = :seasonId ORDER BY season, number")
     fun getBySeasonId(seasonId: String): List<Episode>
 
@@ -105,6 +141,16 @@ interface EpisodeDao {
 
     @Query("DELETE FROM episodes")
     fun deleteAll()
+
+    @Query("""
+        UPDATE episodes SET
+            isWatched = 0,
+            watchedDate = NULL,
+            lastEngagementTimeUtcMillis = NULL,
+            lastPlaybackPositionMillis = NULL,
+            durationMillis = NULL
+    """)
+    fun clearUserState()
 
     @Transaction
     fun save(episode: Episode) {

@@ -49,6 +49,7 @@
 
     <string name="home_swiper_watch_now">Ansehen</string>
     <string name="home_continue_watching">Weiterschauen</string>
+    <string name="home_recently_watched">Kürzlich angesehen</string>
     <string name="home_favorite_movies">Favoriten - Filme</string>
     <string name="home_favorite_tv_shows">Favoriten - Serien</string>
 
@@ -493,4 +494,6 @@
     <string name="settings_refresh_cache_confirm">Cache aktualisieren?</string>
     <string name="settings_refresh_cache_message">Dadurch werden dein Wiedergabeverlauf und die App-Daten aus der Datenbank neu geladen.</string>
     <string name="settings_refresh_cache_success">Cache erfolgreich aktualisiert</string>
+    <string name="supabase_instructions_title">Anleitung</string>
+    <string name="supabase_instructions_summary">Die ausführliche Anleitung zur Einrichtung von Supabase-Konto und Synchronisierung im Browser öffnen</string>
 </resources>

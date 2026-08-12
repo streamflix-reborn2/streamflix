@@ -50,6 +50,7 @@
 
     <string name="home_swiper_watch_now">Guarda Ora</string>
     <string name="home_continue_watching">Continua a guardare</string>
+    <string name="home_recently_watched">Guardati di recente</string>
     <string name="home_favorite_movies">Film preferiti</string>
     <string name="home_favorite_tv_shows">Serie TV preferite</string>
 
@@ -502,4 +503,6 @@
     <string name="settings_refresh_cache_confirm">Aggiornare la cache?</string>
     <string name="settings_refresh_cache_message">Questo ricaricherà la cronologia visione e i dati dell\'app dal database.</string>
     <string name="settings_refresh_cache_success">Cache aggiornata con successo</string>
+    <string name="supabase_instructions_title">Istruzioni</string>
+    <string name="supabase_instructions_summary">Apri nel browser la guida dettagliata per configurare account e sincronizzazione Supabase</string>
 </resources>

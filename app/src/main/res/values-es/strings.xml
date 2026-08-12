@@ -58,6 +58,7 @@
 
     <string name="home_swiper_watch_now">Ver ahora</string>
     <string name="home_continue_watching">Continuar viendo</string>
+    <string name="home_recently_watched">Visto recientemente</string>
     <string name="home_favorite_movies">Películas favoritas</string>
     <string name="home_favorite_tv_shows">Series favoritas</string>
 
@@ -504,4 +505,6 @@
     <string name="settings_parental_tmdb_disable_blocked">Debes desbloquear el control parental antes de desactivar TMDB.</string>
     <string name="settings_force_extra_buffer_title">Búfer extra global</string>
     <string name="settings_force_extra_buffer_summary">Activa búfer extra para todos los servidores de forma predeterminada</string>
+    <string name="supabase_instructions_title">Instrucciones</string>
+    <string name="supabase_instructions_summary">Abrir en el navegador la guía detallada para configurar la cuenta y la sincronización de Supabase</string>
 </resources>

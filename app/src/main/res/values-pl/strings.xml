@@ -40,6 +40,7 @@
 
     <string name="home_swiper_watch_now">Ogladaj teraz</string>
     <string name="home_continue_watching">Kontynuuj ogladanie</string>
+    <string name="home_recently_watched">Ostatnio oglądane</string>
     <string name="home_favorite_movies">Ulubione filmy</string>
     <string name="home_favorite_tv_shows">Ulubione seriale</string>
 
@@ -163,4 +164,6 @@
     <string name="settings_app_language_french">Francuski</string>
     <string name="settings_app_language_italian">Wloski</string>
     <string name="settings_app_language_polish">Polski</string>
+    <string name="supabase_instructions_title">Instrukcje</string>
+    <string name="supabase_instructions_summary">Otwórz w przeglądarce szczegółową instrukcję konfiguracji konta i synchronizacji Supabase</string>
 </resources>

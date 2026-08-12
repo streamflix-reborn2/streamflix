@@ -42,6 +42,18 @@
             app:destination="@id/tv_show" />
     </fragment>
     <fragment
+        android:id="@+id/favorites"
+        android:name="com.streamflixreborn.streamflix.fragments.favorites.FavoritesMobileFragment"
+        android:label="fragment_favorites_mobile"
+        tools:layout="@layout/fragment_favorites_mobile">
+        <action
+            android:id="@+id/action_favorites_to_movie"
+            app:destination="@id/movie" />
+        <action
+            android:id="@+id/action_favorites_to_tv_show"
+            app:destination="@id/tv_show" />
+    </fragment>
+    <fragment
         android:id="@+id/search"
         android:name="com.streamflixreborn.streamflix.fragments.search.SearchMobileFragment"
         android:label="fragment_search_mobile"
@@ -217,6 +229,11 @@
         <argument
             android:name="videoType"
             app:argType="com.streamflixreborn.streamflix.models.Video$Type" />
+        <argument
+            android:name="preferredServerName"
+            android:defaultValue="@null"
+            app:argType="string"
+            app:nullable="true" />
         <action
             android:id="@+id/action_playerMobileFragment_self"
             app:destination="@id/player"

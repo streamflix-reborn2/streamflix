@@ -16,6 +16,33 @@
         app:layout_constraintTop_toTopOf="parent"
         tools:ignore="ContentDescription" />
 
+    <ImageView
+        android:id="@+id/iv_movie_favorite_ribbon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_margin="6dp"
+        android:elevation="2dp"
+        android:src="@drawable/ic_favorite_badge"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="@id/iv_movie_poster"
+        app:layout_constraintTop_toTopOf="@id/iv_movie_poster"
+        tools:ignore="ContentDescription"
+        tools:visibility="visible" />
+
+    <ImageView
+        android:id="@+id/iv_movie_watched_ribbon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="2dp"
+        android:elevation="2dp"
+        android:src="@drawable/ic_watched"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="@id/iv_movie_poster"
+        app:layout_constraintTop_toBottomOf="@id/iv_movie_favorite_ribbon"
+        tools:ignore="ContentDescription"
+        tools:visibility="visible" />
+
     <TextView
         android:id="@+id/tv_movie_quality"
         android:layout_width="wrap_content"

@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.KeyEvent
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AnimationUtils
@@ -31,6 +34,8 @@ import androidx.core.content.ContextCompat
 import androidx.preference.PreferenceManager
 import android.app.AlertDialog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.streamflixreborn.streamflix.fragments.movie.MovieMobileFragmentDirections
@@ -74,6 +79,11 @@ class TvShowViewHolder(
     private val database: AppDatabase
         get() = AppDatabase.getInstance(context)
     private lateinit var tvShow: TvShow
+    private var onTvShowClick: ((TvShow) -> Unit)? = null
+    private var onTvShowLongClick: ((TvShow) -> Unit)? = null
+    private var onTvShowKey: ((TvShow, KeyEvent) -> Boolean)? = null
+    private var itemSelected: Boolean = false
+    private var ribbonStateJob: Job? = null
 
     val childRecyclerView: RecyclerView?
         get() = when (_binding) {
@@ -86,8 +96,18 @@ class TvShowViewHolder(
             else -> null
         }
 
-    fun bind(tvShow: TvShow) {
+    fun bind(
+        tvShow: TvShow,
+        onTvShowClick: ((TvShow) -> Unit)? = null,
+        onTvShowLongClick: ((TvShow) -> Unit)? = null,
+        onTvShowKey: ((TvShow, KeyEvent) -> Boolean)? = null,
+        itemSelected: Boolean = false,
+    ) {
         this.tvShow = tvShow
+        this.onTvShowClick = onTvShowClick
+        this.onTvShowLongClick = onTvShowLongClick
+        this.onTvShowKey = onTvShowKey
+        this.itemSelected = itemSelected
 
         when (_binding) {
             is ItemTvShowMobileBinding -> displayMobileItem(_binding)
@@ -109,10 +129,29 @@ class TvShowViewHolder(
         }
     }
 
+    fun setItemSelected(selected: Boolean) {
+        itemSelected = selected
+        when (_binding) {
+            is ItemTvShowGridMobileBinding -> {
+                _binding.root.isActivated = selected
+                applyMobileSelection(_binding.root)
+            }
+            is ItemTvShowGridBinding -> _binding.root.isActivated = selected
+        }
+    }
+
     private fun isIptvProvider(): Boolean {
         val name = tvShow.providerName ?: UserPreferences.currentProvider?.name ?: ""
         val provider = Provider.providers.keys.find { it.name == name }
         return provider is IptvProvider
+    }
+
+    private fun episodeBadgeText(): String {
+        if (isIptvProvider()) return ""
+        return tvShow.lastPlayedEpisode?.let { "E${it.number}" }
+            ?: tvShow.seasons.lastOrNull()?.episodes?.lastOrNull()?.let { "E${it.number}" }
+            ?: tvShow.released?.format("yyyy")
+            ?: context.getString(R.string.tv_show_item_type)
     }
 
     private fun checkProviderAndRun(action: () -> Unit) {
@@ -190,6 +229,10 @@ class TvShowViewHolder(
 
     private fun displayMobileItem(binding: ItemTvShowMobileBinding) {
         binding.root.setOnClickListener {
+            onTvShowClick?.let { listener ->
+                listener(tvShow)
+                return@setOnClickListener
+            }
             checkProviderAndRun {
                 if (isIptvProvider()) {
                     handleDirectPlay(binding.root.findNavController())
@@ -199,10 +242,15 @@ class TvShowViewHolder(
             }
         }
         binding.root.setOnLongClickListener {
+            onTvShowLongClick?.let { listener ->
+                listener(tvShow)
+                return@setOnLongClickListener true
+            }
             ShowOptionsMobileDialog(context, tvShow).show()
             true
         }
         setPoster(binding.ivTvShowPoster)
+        bindRibbons(binding.ivTvShowFavoriteRibbon, binding.ivTvShowWatchedRibbon)
         binding.tvTvShowQuality.apply {
             text = tvShow.quality ?: ""
             isVisible = !text.isNullOrEmpty()
@@ -216,13 +264,17 @@ class TvShowViewHolder(
             }
             isVisible = watchHistory != null
         }
-        binding.tvTvShowLastEpisode.text = if (isIptvProvider()) "" else tvShow.seasons.lastOrNull()?.episodes?.lastOrNull()?.let { "E${it.number}" } ?: tvShow.released?.format("yyyy") ?: context.getString(R.string.tv_show_item_type)
+        binding.tvTvShowLastEpisode.text = episodeBadgeText()
         binding.tvTvShowTitle.text = tvShow.title
     }
 
     private fun displayTvItem(binding: ItemTvShowTvBinding) {
         binding.root.apply {
             setOnClickListener {
+                onTvShowClick?.let { listener ->
+                    listener(tvShow)
+                    return@setOnClickListener
+                }
                 checkProviderAndRun {
                     if (isIptvProvider()) {
                         handleDirectPlay(findNavController())
@@ -232,6 +284,10 @@ class TvShowViewHolder(
                 }
             }
             setOnLongClickListener {
+                onTvShowLongClick?.let { listener ->
+                    listener(tvShow)
+                    return@setOnLongClickListener true
+                }
                 ShowOptionsTvDialog(context, tvShow).show()
                 true
             }
@@ -249,6 +305,7 @@ class TvShowViewHolder(
             }
         }
         setPoster(binding.ivTvShowPoster)
+        bindRibbons(binding.ivTvShowFavoriteRibbon, binding.ivTvShowWatchedRibbon)
         binding.tvTvShowQuality.apply {
             text = tvShow.quality ?: ""
             isVisible = !text.isNullOrEmpty()
@@ -262,12 +319,20 @@ class TvShowViewHolder(
             }
             isVisible = watchHistory != null
         }
-        binding.tvTvShowLastEpisode.text = if (isIptvProvider()) "" else tvShow.seasons.lastOrNull()?.episodes?.lastOrNull()?.let { "E${it.number}" } ?: tvShow.released?.format("yyyy") ?: context.getString(R.string.tv_show_item_type)
+        binding.tvTvShowLastEpisode.text = episodeBadgeText()
         binding.tvTvShowTitle.text = tvShow.title
     }
 
     private fun displayGridMobileItem(binding: ItemTvShowGridMobileBinding) {
+        binding.root.alpha = 1f
+        binding.root.isActivated = itemSelected
+        applyMobileSelection(binding.root)
+        binding.root.setOnKeyListener { _, _, event -> onTvShowKey?.invoke(tvShow, event) ?: false }
         binding.root.setOnClickListener {
+            onTvShowClick?.let { listener ->
+                listener(tvShow)
+                return@setOnClickListener
+            }
             checkProviderAndRun {
                 if (isIptvProvider()) {
                     handleDirectPlay(binding.root.findNavController())
@@ -277,10 +342,15 @@ class TvShowViewHolder(
             }
         }
         binding.root.setOnLongClickListener {
+            onTvShowLongClick?.let { listener ->
+                listener(tvShow)
+                return@setOnLongClickListener true
+            }
             ShowOptionsMobileDialog(context, tvShow).show()
             true
         }
         setPoster(binding.ivTvShowPoster)
+        bindRibbons(binding.ivTvShowFavoriteRibbon, binding.ivTvShowWatchedRibbon)
         binding.tvTvShowQuality.apply {
             text = tvShow.quality ?: ""
             isVisible = !text.isNullOrEmpty()
@@ -294,13 +364,20 @@ class TvShowViewHolder(
             }
             isVisible = watchHistory != null
         }
-        binding.tvTvShowLastEpisode.text = if (isIptvProvider()) "" else tvShow.seasons.lastOrNull()?.episodes?.lastOrNull()?.let { "E${it.number}" } ?: tvShow.released?.format("yyyy") ?: context.getString(R.string.tv_show_item_type)
+        binding.tvTvShowLastEpisode.text = episodeBadgeText()
         binding.tvTvShowTitle.text = tvShow.title
     }
 
     private fun displayGridTvItem(binding: ItemTvShowGridBinding) {
         binding.root.apply {
+            alpha = 1f
+            isActivated = itemSelected
+            setOnKeyListener { _, _, event -> onTvShowKey?.invoke(tvShow, event) ?: false }
             setOnClickListener {
+                onTvShowClick?.let { listener ->
+                    listener(tvShow)
+                    return@setOnClickListener
+                }
                 checkProviderAndRun {
                     if (isIptvProvider()) {
                         handleDirectPlay(findNavController())
@@ -310,6 +387,10 @@ class TvShowViewHolder(
                 }
             }
             setOnLongClickListener {
+                onTvShowLongClick?.let { listener ->
+                    listener(tvShow)
+                    return@setOnLongClickListener true
+                }
                 ShowOptionsTvDialog(context, tvShow).show()
                 true
             }
@@ -320,6 +401,7 @@ class TvShowViewHolder(
             }
         }
         setPoster(binding.ivTvShowPoster)
+        bindRibbons(binding.ivTvShowFavoriteRibbon, binding.ivTvShowWatchedRibbon)
         binding.tvTvShowQuality.apply {
             text = tvShow.quality ?: ""
             isVisible = !text.isNullOrEmpty()
@@ -333,8 +415,22 @@ class TvShowViewHolder(
             }
             isVisible = watchHistory != null
         }
-        binding.tvTvShowLastEpisode.text = if (isIptvProvider()) "" else tvShow.seasons.lastOrNull()?.episodes?.lastOrNull()?.let { "E${it.number}" } ?: tvShow.released?.format("yyyy") ?: context.getString(R.string.tv_show_item_type)
+        binding.tvTvShowLastEpisode.text = episodeBadgeText()
         binding.tvTvShowTitle.text = tvShow.title
+    }
+
+    private fun applyMobileSelection(view: View) {
+        if (itemSelected) {
+            val width = (4 * context.resources.displayMetrics.density).toInt()
+            view.background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke(width, ContextCompat.getColor(context, R.color.favorite_selected))
+            }
+            view.setPadding(width, width, width, width)
+        } else {
+            view.background = null
+            view.setPadding(0, 0, 0, 0)
+        }
     }
 
     private fun isPackageInstalled(packageName: String): Boolean {
@@ -482,6 +578,31 @@ class TvShowViewHolder(
                 handleDirectPlay(binding.root.findNavController())
             } else {
                 binding.root.findNavController().navigate(R.id.tv_show, tvShowArgs())
+            }
+        }
+    }
+
+    private fun bindRibbons(favoriteRibbon: View, watchedRibbon: View) {
+        ribbonStateJob?.cancel()
+
+        val boundTvShowId = tvShow.id
+        favoriteRibbon.isVisible = tvShow.isFavorite
+        watchedRibbon.isVisible = false
+        val lifecycleOwner = itemView.findViewTreeLifecycleOwner()
+            ?: context.toActivity()
+            ?: return
+
+        ribbonStateJob = lifecycleOwner.lifecycleScope.launch {
+            combine(
+                database.tvShowDao().getByIdAsFlow(boundTvShowId),
+                database.episodeDao().isTvShowFullyWatchedAsFlow(boundTvShowId),
+            ) { persistedTvShow, isFullyWatched ->
+                (persistedTvShow?.isFavorite ?: tvShow.isFavorite) to isFullyWatched
+            }.collect { (isFavorite, isFullyWatched) ->
+                if (tvShow.id == boundTvShowId) {
+                    favoriteRibbon.isVisible = isFavorite
+                    watchedRibbon.isVisible = isFullyWatched
+                }
             }
         }
     }
