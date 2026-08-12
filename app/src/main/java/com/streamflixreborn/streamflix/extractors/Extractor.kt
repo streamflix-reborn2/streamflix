@@ -44,11 +44,7 @@ internal suspend fun dispatchExtraction(
 ): Video {
     val extractor = selectExtractor(link, server, candidates)
         ?: throw Exception("No extractors found for URL: $link")
-
-    Log.i("StreamFlixES", "[EXTRACTOR] -> Starting: ${extractor.name} (URL: $link)")
-    val video = extractor.extract(link, server)
-    Log.i("StreamFlixES", "[VIDEO] -> Extracted: ${video.source}")
-    return video
+    return extractor.extract(link, server)
 }
 
 abstract class Extractor {
