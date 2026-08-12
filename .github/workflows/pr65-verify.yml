@@ -1,0 +1,57 @@
+name: PR65 Exact Head Verification
+
+on:
+  push:
+    branches:
+      - fix/playback-provider-stability
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr65-playback-provider-stability
+  cancel-in-progress: true
+
+jobs:
+  verify-tv:
+    name: Unit, lint and TV debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Configure inert build values
+        shell: bash
+        run: |
+          cat > local.properties <<'EOF'
+          APP_LAYOUT=tv
+          TMDB_API_KEY=fixture-only
+          RABBITSTREAM_SOURCE_API=https://invalid.example/
+          EOF
+          sed -e 's|{{UPROT_MSFI_API_BASE}}|https://invalid.example/msfi|g' \
+              -e 's|{{UPROT_MSE_API_BASE}}|https://invalid.example/mse|g' \
+              -e 's|{{UPROT_API_KEY}}|fixture-only|g' \
+              app/src/main/cpp/native-lib.cpp.template > app/src/main/cpp/native-lib.cpp
+          chmod +x ./gradlew
+
+      - name: Resolve dependencies and run unit tests
+        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+
+      - name: Run lint
+        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+
+      - name: Build TV debug APK
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Verify offline reproducibility after cache warm-up
+        run: ./gradlew --offline --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
