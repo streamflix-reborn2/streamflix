@@ -71,16 +71,31 @@ class VixSrcPlaylistMetadataTest {
         assertTrue(error is VixSrcMetadataException)
     }
 
+    @Test fun `nested properties cannot replace required top level metadata`() {
+        val script = """
+            window.video = { nested: { id: '99' }, filename: 'fixture' };
+            window.masterPlaylist = {
+                nested: { token: 'wrong', expires: '9999' },
+                token: 'abc',
+                expires: '1234'
+            };
+        """.trimIndent()
+
+        val error = runCatching { parseVixSrcPlaylistMetadata(script, "en") }.exceptionOrNull()
+        assertTrue(error is VixSrcMetadataException)
+        assertTrue(error?.message.orEmpty().contains("video id"))
+    }
+
     @Test fun `supports double quotes whitespace and nested objects`() {
         val script = """
             window . video = {
                 "id" : "42",
-                nested: { braces: "{kept inside string}" },
+                nested: { id: "99", braces: "{kept inside string}" },
                 filename: "fixture"
             };
             window . masterPlaylist = {
                 "token" : "abc",
-                options: { nested: true },
+                options: { token: "wrong", expires: "9999", nested: true },
                 "expires" : "1234"
             };
         """.trimIndent()
