@@ -1,6 +1,7 @@
 package com.streamflixreborn.streamflix.fragments.search
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SearchResultProviderResolverTest {
@@ -54,6 +55,18 @@ class SearchResultProviderResolverTest {
         )
     }
 
+    @Test fun `provider matching ignores incidental whitespace and case`() {
+        assertEquals(
+            "SFlix",
+            resolveSearchResultProvider(
+                resultProviderName = "  sflix  ",
+                currentProvider = "TMDb",
+                availableProviders = providers,
+                providerName = { it },
+            ),
+        )
+    }
+
     @Test fun `registered provider is selected when current provider is absent`() {
         assertEquals(
             "AnimeWorld",
@@ -61,6 +74,29 @@ class SearchResultProviderResolverTest {
                 resultProviderName = "AnimeWorld",
                 currentProvider = null,
                 availableProviders = providers,
+                providerName = { it },
+            ),
+        )
+    }
+
+    @Test fun `ambiguous duplicate provider name keeps current provider`() {
+        assertEquals(
+            "TMDb",
+            resolveSearchResultProvider(
+                resultProviderName = "SFlix",
+                currentProvider = "TMDb",
+                availableProviders = listOf("SFlix", "sflix", "TMDb"),
+                providerName = { it },
+            ),
+        )
+    }
+
+    @Test fun `ambiguous provider without current provider does not pick by order`() {
+        assertNull(
+            resolveSearchResultProvider(
+                resultProviderName = "SFlix",
+                currentProvider = null,
+                availableProviders = listOf("SFlix", "sflix"),
                 providerName = { it },
             ),
         )
