@@ -2,6 +2,7 @@ package com.streamflixreborn.streamflix.utils
 
 import androidx.media3.common.MimeTypes
 import com.streamflixreborn.streamflix.models.Video
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -11,83 +12,108 @@ class PlaylistUtils(private val client: OkHttpClient) {
     fun extractFromHls(
         playlistUrl: String,
         referer: String? = null,
+        requestHeaders: Map<String, String>? = null,
     ): List<Video> {
+        val headers = buildMap {
+            requestHeaders
+                ?.filterValues { it.isNotBlank() }
+                ?.forEach { (key, value) -> put(key, value) }
+            referer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
+        }.ifEmpty { null }
+
         val masterPlaylist = try {
             val request = Request.Builder().url(playlistUrl)
-            if (referer != null) {
-                request.header("Referer", referer)
+            headers?.forEach { (key, value) -> request.header(key, value) }
+            client.newCall(request.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@use null
+                }
+                response.body?.string()
             }
-            client.newCall(request.build()).execute().body?.string() ?: ""
-        } catch (e: Exception) {
-            // Si la URL principal ya es un video, devuélvelo directamente
-            return listOf(Video(source = playlistUrl, subtitles = emptyList(), type = MimeTypes.APPLICATION_M3U8))
+        } catch (_: Exception) {
+            null
         }
 
-        val videoList = mutableListOf<Video>()
+        if (masterPlaylist.isNullOrBlank()) {
+            return listOf(playableHlsVideo(playlistUrl, headers))
+        }
 
         if (!masterPlaylist.contains("#EXT-X-STREAM-INF")) {
-            videoList.add(
-                Video(
-                    source = playlistUrl,
-                    subtitles = emptyList(),
-                    type = MimeTypes.APPLICATION_M3U8
-                )
-            )
-            return videoList
+            return listOf(playableHlsVideo(playlistUrl, headers))
         }
 
         val masterUrl = playlistUrl.toHttpUrl()
-        val masterBaseUrl = masterUrl.toString().substringBeforeLast("/") + "/"
-
-        // Obtener subtítulos de la playlist
-        val subtitles = SUBTITLE_REGEX.findAll(masterPlaylist).map {
-            val url = getAbsoluteUrl(it.groupValues[2], masterUrl.toString(), masterBaseUrl)
-            Video.Subtitle(
-                label = it.groupValues[1],
-                file = url,
-            )
+        val subtitles = SUBTITLE_REGEX.findAll(masterPlaylist).mapNotNull { match ->
+            resolveHlsUrl(masterUrl, match.groupValues[2])?.let { url ->
+                Video.Subtitle(
+                    label = match.groupValues[1],
+                    file = url,
+                )
+            }
         }.toList()
 
-        masterPlaylist.substringAfter("#EXT-X-STREAM-INF:").split("#EXT-X-STREAM-INF:").forEach {
-            val resolution = RESOLUTION_REGEX.find(it)?.groupValues?.get(1)
-            val quality = resolution?.let { res -> "${res}p" } ?: getQualityFromBandwidth(it)
-            val url = getAbsoluteUrl(it.substringAfter("\n").trim(), masterUrl.toString(), masterBaseUrl)
-            val videoHeaders = referer?.let { mapOf("Referer" to it) }
+        return masterPlaylist
+            .substringAfter("#EXT-X-STREAM-INF:")
+            .split("#EXT-X-STREAM-INF:")
+            .mapNotNull { variant ->
+                val uriLine = variant
+                    .lineSequence()
+                    .drop(1)
+                    .firstOrNull { it.isNotBlank() && !it.startsWith("#") }
+                    ?.trim()
+                    ?: return@mapNotNull null
+                val url = resolveHlsUrl(masterUrl, uriLine) ?: return@mapNotNull null
+                val height = RESOLUTION_REGEX.find(variant)?.groupValues?.get(1)?.toIntOrNull()
+                val bandwidth = BANDWIDTH_REGEX.find(variant)?.groupValues?.get(1)?.toLongOrNull()
 
-            videoList.add(
-                Video(
-                    source = url,
-                    subtitles = subtitles,
-                    type = MimeTypes.APPLICATION_M3U8,
-                    headers = videoHeaders
+                HlsVariant(
+                    video = Video(
+                        source = url,
+                        subtitles = subtitles,
+                        type = MimeTypes.APPLICATION_M3U8,
+                        headers = headers,
+                    ),
+                    height = height,
+                    bandwidth = bandwidth,
                 )
+            }
+            .sortedWith(
+                compareByDescending<HlsVariant> { it.height ?: -1 }
+                    .thenByDescending { it.bandwidth ?: -1L },
             )
-        }
-        return videoList.sortedByDescending { it.source.contains("1080") }
+            .map { it.video }
     }
 
-    private fun getAbsoluteUrl(url: String, playlistUrl: String, masterBase: String): String {
-        return when {
-            url.startsWith("http") -> url
-            url.startsWith("//") -> "https:$url"
-            url.startsWith("/") -> playlistUrl.toHttpUrl().scheme + "://" + playlistUrl.toHttpUrl().host + url
-            else -> masterBase + url
+    private fun playableHlsVideo(
+        source: String,
+        headers: Map<String, String>?,
+    ) = Video(
+        source = source,
+        subtitles = emptyList(),
+        type = MimeTypes.APPLICATION_M3U8,
+        headers = headers,
+    )
+
+    private fun resolveHlsUrl(masterUrl: HttpUrl, value: String): String? {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return null
+        if (trimmed.startsWith("//")) {
+            return "${masterUrl.scheme}:$trimmed"
         }
+        return masterUrl.resolve(trimmed)?.toString()
     }
 
-    private fun getQualityFromBandwidth(text: String): String {
-        val bandwidth = BANDWIDTH_REGEX.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: return "Default"
-        return when {
-            bandwidth >= 2000000 -> "1080p"
-            bandwidth >= 1000000 -> "720p"
-            bandwidth >= 600000 -> "480p"
-            else -> "360p"
-        }
-    }
+    private data class HlsVariant(
+        val video: Video,
+        val height: Int?,
+        val bandwidth: Long?,
+    )
 
     companion object {
-        private val SUBTITLE_REGEX by lazy { Regex("""#EXT-X-MEDIA:TYPE=SUBTITLES.*?NAME="(.*?)".*?URI="(.*?)"""") }
-        private val RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=\d{3,4}x(\d{3,4})""") }
+        private val SUBTITLE_REGEX by lazy {
+            Regex("""#EXT-X-MEDIA:TYPE=SUBTITLES.*?NAME="(.*?)".*?URI="(.*?)"""")
+        }
+        private val RESOLUTION_REGEX by lazy { Regex("""RESOLUTION=\d{2,5}x(\d{2,5})""") }
         private val BANDWIDTH_REGEX by lazy { Regex("""BANDWIDTH=(\d+)""") }
     }
 }
