@@ -3,11 +3,53 @@ package com.streamflixreborn.streamflix.extractors
 import android.util.Log
 import com.streamflixreborn.streamflix.models.Video
 
+internal fun selectExtractor(
+    link: String,
+    server: Video.Server?,
+    candidates: Iterable<Extractor>,
+): Extractor? {
+    val urlRegex = Regex("^(https?://)?(www\\.)?")
+    val compareUrl = link.lowercase().replace(urlRegex, "")
+
+    candidates.firstOrNull { extractor ->
+        compareUrl.startsWith(extractor.mainUrl.lowercase().replace(urlRegex, "")) ||
+            extractor.aliasUrls.any { alias ->
+                compareUrl.startsWith(alias.lowercase().replace(urlRegex, ""))
+            }
+    }?.let { return it }
+
+    val domainOnlyRegex = Regex("^(https?://)?(www\\.)?(.*?)(\\.[a-z]+)")
+    candidates.firstOrNull { extractor ->
+        compareUrl.startsWith(
+            extractor.mainUrl.lowercase().replace(domainOnlyRegex, "$3"),
+        ) || extractor.aliasUrls.any { alias ->
+            compareUrl.startsWith(alias.lowercase().replace(domainOnlyRegex, "$3"))
+        }
+    }?.let { return it }
+
+    candidates.firstOrNull { extractor ->
+        extractor.rotatingDomain.any { it.containsMatchIn(compareUrl) }
+    }?.let { return it }
+
+    val serverName = server?.name?.lowercase().orEmpty()
+    return candidates.firstOrNull { extractor ->
+        serverName.contains(extractor.name.lowercase())
+    }
+}
+
 internal suspend fun dispatchExtraction(
     link: String,
     server: Video.Server?,
-    extract: suspend (String, Video.Server?) -> Video,
-): Video = extract(link, server)
+    candidates: Iterable<Extractor>,
+): Video {
+    val extractor = selectExtractor(link, server, candidates)
+        ?: throw Exception("No extractors found for URL: $link")
+
+    Log.i("StreamFlixES", "[EXTRACTOR] -> Starting: ${extractor.name} (URL: $link)")
+    val video = extractor.extract(link, server)
+    Log.i("StreamFlixES", "[VIDEO] -> Extracted: ${video.source}")
+    return video
+}
 
 abstract class Extractor {
 
@@ -16,10 +58,8 @@ abstract class Extractor {
     open val aliasUrls: List<String> = emptyList()
     open val rotatingDomain: List<Regex> = emptyList()
 
-    // THIS is the main method all subclasses must implement
     abstract suspend fun extract(link: String): Video
 
-    // THIS is a convenience helper
     open suspend fun extract(link: String, server: Video.Server? = null): Video {
         return extract(link)
     }
@@ -129,17 +169,14 @@ abstract class Extractor {
 
         suspend fun extract(link: String, server: Video.Server? = null): Video {
             var finalLink = link
-            
-            // 1. RISOLUZIONE BRIDGE UNIVERSALE (StreamHG/Sync/Cuevana)
-            // Facciamo questo PRIMA di cercare l'estrattore perché il link bridge (es. mysync.mov)
-            // non appartiene a nessun estrattore specifico, ma il link risolto sì (es. filemoon).
+
             if (link.contains("mysync.mov/stream/")) {
                 try {
                     val client = okhttp3.OkHttpClient.Builder()
                         .followRedirects(true)
                         .followSslRedirects(true)
                         .build()
-                    
+
                     val responseBody = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val request = okhttp3.Request.Builder()
                             .url(link)
@@ -147,12 +184,20 @@ abstract class Extractor {
                             .build()
                         client.newCall(request).execute().use { it.body?.string() }
                     } ?: ""
-                    
-                    val redirectUrl = responseBody.substringAfter("window.location.replace(\"", "").substringBefore("\"")
-                        .ifEmpty { responseBody.substringAfter("window.location.href = \"", "").substringBefore("\"") }
-                        .ifEmpty { responseBody.substringAfter("src=\"", "").substringBefore("\"") }
-                    
-                    if (redirectUrl.isNotEmpty() && redirectUrl.startsWith("http")) {
+
+                    val redirectUrl = responseBody
+                        .substringAfter("window.location.replace(\"", "")
+                        .substringBefore("\"")
+                        .ifEmpty {
+                            responseBody.substringAfter("window.location.href = \"", "")
+                                .substringBefore("\"")
+                        }
+                        .ifEmpty {
+                            responseBody.substringAfter("src=\"", "")
+                                .substringBefore("\"")
+                        }
+
+                    if (redirectUrl.startsWith("http")) {
                         Log.d("Extractor", "Universal Bridge resolved: $link -> $redirectUrl")
                         finalLink = redirectUrl
                     }
@@ -161,85 +206,11 @@ abstract class Extractor {
                 }
             }
 
-            val urlRegex = Regex("^(https?://)?(www\\.)?")
-            val compareUrl = finalLink.lowercase().replace(urlRegex, "")
-
-            var foundExtractor: Extractor? = null
-
-            for (extractor in extractors) {
-                if (compareUrl.startsWith(extractor.mainUrl.replace(urlRegex, ""))) {
-                    foundExtractor = extractor
-                    break
-                } else {
-                    for (aliasUrl in extractor.aliasUrls) {
-                        if (compareUrl.startsWith(aliasUrl.lowercase().replace(urlRegex, ""))) {
-                            foundExtractor = extractor
-                            break
-                        }
-                    }
-                }
-                if (foundExtractor != null) break
-            }
-
-            if (foundExtractor == null) {
-                for (extractor in extractors) {
-                    if (compareUrl.startsWith(
-                            extractor.mainUrl.replace(
-                                Regex("^(https?://)?(www\\.)?(.*?)(\\.[a-z]+)"),
-                                "$3"
-                            )
-                        )
-                    ) {
-                        foundExtractor = extractor
-                        break
-                    } else {
-                        for (aliasUrl in extractor.aliasUrls) {
-                            if (compareUrl.startsWith(
-                                    aliasUrl.replace(
-                                        Regex("^(https?://)?(www\\.)?(.*?)(\\.[a-z]+)"),
-                                        "$3"
-                                    )
-                                )
-                            ) {
-                                foundExtractor = extractor
-                                break
-                            }
-                        }
-                    }
-                    if (foundExtractor != null) break
-                }
-            }
-
-            if (foundExtractor == null) {
-                for (extractor in extractors) {
-                    if (extractor.rotatingDomain.any { it.containsMatchIn(compareUrl) }) {
-                        foundExtractor = extractor
-                        break
-                    }
-                }
-            }
-
-            if (foundExtractor == null) {
-                for (extractor in extractors) {
-                    if ((server?.name?.lowercase() ?: "").contains(extractor.name.lowercase())) {
-                        foundExtractor = extractor
-                        break
-                    }
-                }
-            }
-
-            if (foundExtractor != null) {
-                Log.i("StreamFlixES", "[EXTRACTOR] -> Starting: ${foundExtractor.name} (URL: $finalLink)")
-                val video = dispatchExtraction(
-                    link = finalLink,
-                    server = server,
-                    extract = foundExtractor::extract,
-                )
-                Log.i("StreamFlixES", "[VIDEO] -> Extracted: ${video.source}")
-                return video
-            }
-
-            throw Exception("No extractors found for URL: $finalLink")
+            return dispatchExtraction(
+                link = finalLink,
+                server = server,
+                candidates = extractors,
+            )
         }
     }
 }
