@@ -3,6 +3,12 @@ package com.streamflixreborn.streamflix.extractors
 import android.util.Log
 import com.streamflixreborn.streamflix.models.Video
 
+internal suspend fun dispatchExtraction(
+    link: String,
+    server: Video.Server?,
+    extract: suspend (String, Video.Server?) -> Video,
+): Video = extract(link, server)
+
 abstract class Extractor {
 
     abstract val name: String
@@ -224,7 +230,11 @@ abstract class Extractor {
 
             if (foundExtractor != null) {
                 Log.i("StreamFlixES", "[EXTRACTOR] -> Starting: ${foundExtractor.name} (URL: $finalLink)")
-                val video = foundExtractor.extract(finalLink)
+                val video = dispatchExtraction(
+                    link = finalLink,
+                    server = server,
+                    extract = foundExtractor::extract,
+                )
                 Log.i("StreamFlixES", "[VIDEO] -> Extracted: ${video.source}")
                 return video
             }
