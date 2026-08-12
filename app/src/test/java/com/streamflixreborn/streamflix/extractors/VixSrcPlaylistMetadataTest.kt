@@ -29,6 +29,19 @@ class VixSrcPlaylistMetadataTest {
         assertTrue(error is VixSrcMetadataException)
     }
 
+    @Test fun `rejects metadata from unrelated objects`() {
+        val script = """
+            window.video = { filename: 'fixture' };
+            const unrelated = { id: '99', 'token': 'abc', 'expires': '1234' };
+        """.trimIndent()
+
+        val error = runCatching {
+            parseVixSrcPlaylistMetadata(script, "en")
+        }.exceptionOrNull()
+
+        assertTrue(error is VixSrcMetadataException)
+    }
+
     @Test fun `builds playlist URL only from complete metadata`() {
         val script = """
             window.video = { id: '42', filename: 'fixture' };

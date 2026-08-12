@@ -12,15 +12,21 @@ internal fun parseVixSrcPlaylistMetadata(
     scriptText: String,
     language: String,
 ): VixSrcPlaylistMetadata {
+    val videoObject = Regex(
+        """window\.video\s*=\s*\{([^{}]*)}""",
+    ).find(scriptText)?.groupValues?.get(1).orEmpty()
+    val playlistObject = Regex(
+        """window\.masterPlaylist\s*=\s*\{([^{}]*)}""",
+    ).find(scriptText)?.groupValues?.get(1).orEmpty()
     val videoId = Regex(
-        """window\.video\s*=\s*\{[\s\S]*?\bid\s*:\s*['\"]([^'\"]+)['\"]""",
-    ).find(scriptText)?.groupValues?.get(1)?.trim().orEmpty()
+        """\bid\s*:\s*['\"]([^'\"]+)['\"]""",
+    ).find(videoObject)?.groupValues?.get(1)?.trim().orEmpty()
     val token = Regex(
         """['\"]token['\"]\s*:\s*['\"]([^'\"]+)['\"]""",
-    ).find(scriptText)?.groupValues?.get(1)?.trim().orEmpty()
+    ).find(playlistObject)?.groupValues?.get(1)?.trim().orEmpty()
     val expires = Regex(
         """['\"]expires['\"]\s*:\s*['\"]([^'\"]+)['\"]""",
-    ).find(scriptText)?.groupValues?.get(1)?.trim().orEmpty()
+    ).find(playlistObject)?.groupValues?.get(1)?.trim().orEmpty()
 
     if (videoId.isBlank() || token.isBlank() || expires.isBlank()) {
         throw VixSrcMetadataException()
