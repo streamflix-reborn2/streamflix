@@ -44,7 +44,9 @@ import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.apply
 import kotlin.jvm.java
+import kotlin.text.clear
 import kotlin.text.format
 
 object MkissaProvider : Provider {
@@ -55,8 +57,9 @@ object MkissaProvider : Provider {
     private const val SEARCH_HASH = "a24c500a1b765c68ae1d8dd85174931f661c71369c89b92b88b75a725afc471c"
     private const val POPULAR_DAILY_HASH = "a0aca6827cc9a3ad7bc711da4d200a04adea8f1a7545dc418d5e92e74c3aad15"
     private const val POPULAR_HASH = "ac2c75884a11fca5707ce4ad10f2e3e2aae31e42af5e4d9c511a4a5e708e4c6d"
-    private const val DETAIL_HASH = "043448386c7a686bc2aabfbb6b80f6074e795d350df48015023b079527b0848a"
-    private const val SOURCE_HASH = "3010f32eeff683ff01456844eb7cf25a1e7c9ca4e925f417a240719ff7bfd971"
+    private val DETAIL_HASH: String by lazy { sha256Hex(DETAIL_QUERY) }
+    // Keep the persisted-query hash coupled to the query body.
+    private val SOURCE_HASH: String by lazy { sha256Hex(SOURCE_QUERY) }
     private const val GENRE_HASH = "ff61a63ff776f334f80c1e6ad1aa49ef71eab831e235e5d6ec679eae5b83450f"
     private const val IMAGE_URL = "https://aln.youtube-anime.com"
     private const val DEFAULT_BUILD_ID = "45"
@@ -1018,10 +1021,21 @@ object MkissaProvider : Provider {
         }
     }
 
+    private fun sha256Hex(value: String): String = MessageDigest
+        .getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .toHex()
+
     private fun fetchBundleCryptoConfig(html: String): BundleCryptoConfig? {
-        val entryUrl = Regex("""https://[^\"']+/entry/app\.[^\"']+\.js""")
+        // SvelteKit/Vite changes the asset host and may emit either absolute or
+        // relative script URLs. Do not couple discovery to today's CDN path.
+        val pageUrl = "https://mkissa.to/anime".toHttpUrlOrNull() ?: return null
+        // The entry can be emitted as a script attribute or as an import()
+        // in streamed HTML, so look for the URL token rather than its wrapper.
+        val entryUrl = Regex("""(?:https?://|/|\.\.?/)[^\"'\s]*?/entry/app\.[^\"'\s]+\.js""")
             .find(html)
             ?.value
+            ?.let { pageUrl.resolve(it)?.toString() }
             ?: return null
         val app = runCatching {
             sourceResolverClient.newCall(
@@ -1035,13 +1049,15 @@ object MkissaProvider : Provider {
             }
         }.getOrNull() ?: return null
 
-        val assetBase = entryUrl.substringBeforeLast("/entry/")
-        val chunkUrls = Regex("""\.\./chunks/[^\"']+\.js""")
+        // The crypto code can live in a chunks/ file or in a route node. Both
+        // are referenced by the entry bundle, and either directory can change
+        // independently between deployments.
+        val scriptUrls = Regex("""(?:https?:[^\"'\s]+|\.\.?/)(?:[^\"'\s]+/)?(?:chunks|nodes)/[^\"'\s]+\.js""")
             .findAll(app)
-            .map { "$assetBase/${it.value.removePrefix("../")}" }
+            .mapNotNull { entryUrl.toHttpUrlOrNull()?.resolve(it.value)?.toString() }
             .distinct()
             .toList()
-        val scripts = sequenceOf(app) + chunkUrls.asSequence().mapNotNull { url ->
+        val scripts = (sequenceOf(app) + scriptUrls.asSequence().mapNotNull { url ->
             runCatching {
                 sourceResolverClient.newCall(
                     Request.Builder()
@@ -1053,8 +1069,12 @@ object MkissaProvider : Provider {
                     if (!response.isSuccessful) null else response.body?.string()
                 }
             }.getOrNull()
-        }
-        return scripts
+        }).toList()
+
+        // SvelteKit can split the request code, the obfuscation table, and the
+        // API constants into separate chunks. Parse each chunk first, then a
+        // combined view so those pieces can still be discovered together.
+        return (scripts.asSequence() + sequenceOf(scripts.joinToString("\n")))
             .filter { it.contains("aaReq") }
             .mapNotNull(::parseBundleCryptoConfig)
             .firstOrNull()
@@ -1115,25 +1135,41 @@ object MkissaProvider : Provider {
         script: String,
         apiUrl: String
     ): BundleCryptoConfig? {
-        val declaration = Regex(
-            """const\s+[A-Za-z_$][\w$]*=.{0,160}?\?[\"'](\d+)[\"']:[\"']{2},[A-Za-z_$][\w$]*=\[([^]]+)]"""
-        ).find(script) ?: return null
-        val buildId = declaration.groupValues[1]
-        val encodedParts = declaration.groupValues[2]
-            .splitTopLevel(',')
-            .map { expression ->
-                Regex("""([A-Za-z_$][\w$]*)\(([^)]*)\)""")
-                    .findAll(expression)
-                    .map { call ->
+        // Recent bundles split the build id and mask fragments into separate
+        // declarations (`const fm=... ?"105":""; const zd=[...];`). Older
+        // bundles kept them together, so discover both independently.
+        val buildId = Regex(
+            """\?[\"'](\d+)[\"']\s*:\s*[\"']{2}"""
+        ).find(script)?.groupValues?.getOrNull(1) ?: return null
+        val callRegex = Regex("""([A-Za-z_$][\w$]*)\(([^)]*)\)""")
+        val encodedParts = Regex(
+            """(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[([^]]+)]"""
+        ).findAll(script)
+            .map { it.groupValues[1] to it.groupValues[2] }
+            .map { body ->
+                body.second.splitTopLevel(',').map { expression ->
+                    callRegex.findAll(expression).map { call ->
                         ObfuscatedCall(
                             name = call.groupValues[1],
                             arguments = call.groupValues[2]
                                 .split(',')
                                 .mapNotNull { it.trim().toIntOrNull() }
                         )
-                    }
-                    .toList()
+                    }.toList()
+                }
             }
+            // The combined bundle contains unrelated minified arrays with the
+            // same shape. The crypto array is the one whose lookup functions
+            // resolve through the crypto string-table root.
+            .filter { parts -> parts.size == 4 && parts.all { it.size == 2 } }
+            .firstOrNull { parts ->
+                parts.flatten().map { it.name }.distinct().all { name ->
+                    parseObfuscatedLookup(script, name)?.let { lookup ->
+                        parseObfuscatedRootAdjustment(script, lookup.rootName) != null
+                    } == true
+                }
+            }
+            ?: return null
         if (encodedParts.size != 4 || encodedParts.any { it.size != 2 }) return null
 
         val stringTable = extractObfuscatedStringTable(script) ?: return null
@@ -1198,14 +1234,17 @@ object MkissaProvider : Provider {
     }
 
     private fun parseObfuscatedLookup(script: String, name: String): ObfuscatedLookup? {
-        val match = Regex(
+        val matches = Regex(
             """function\s+${Regex.escape(name)}\(([^)]*)\)\{return\s+([A-Za-z_$][\w$]*)\(([^)]*)\)\}"""
-        ).find(script) ?: return null
-        return ObfuscatedLookup(
-            parameters = match.groupValues[1].split(',').map(String::trim),
-            rootName = match.groupValues[2],
-            argumentExpression = match.groupValues[3]
-        )
+        ).findAll(script).map { match ->
+            ObfuscatedLookup(
+                parameters = match.groupValues[1].split(',').map(String::trim),
+                rootName = match.groupValues[2],
+                argumentExpression = match.groupValues[3]
+            )
+        }
+        return matches.firstOrNull { parseObfuscatedRootAdjustment(script, it.rootName) != null }
+            ?: matches.firstOrNull()
     }
 
     private fun parseObfuscatedRootAdjustment(script: String, name: String): Int? {
