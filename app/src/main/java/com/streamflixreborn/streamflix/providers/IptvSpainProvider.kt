@@ -74,6 +74,7 @@ object IptvSpainProvider : IptvProvider {
         requireM3uPlaybackIdentityFromBase64(
             encoded = id,
             decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+            encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
         )
 
     private fun decodeId(id: String): Triple<String, String, String> {
@@ -275,7 +276,15 @@ object IptvSpainProvider : IptvProvider {
                 }
             }
         }
-        return channels
+        return channels.filter { channel ->
+            isValidM3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = channel.referrer,
+            )
+        }
     }
 
     override suspend fun getMovies(page: Int): List<Movie> = emptyList()

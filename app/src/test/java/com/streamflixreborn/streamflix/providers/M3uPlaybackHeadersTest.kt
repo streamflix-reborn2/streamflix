@@ -72,11 +72,30 @@ class M3uPlaybackHeadersTest {
         assertFalse(decoderCalled)
     }
 
-    @Test fun `oversized decoded identity is rejected`() {
+    @Test fun `oversized decoded identity is rejected after bounded decode`() {
+        var decoderCalled = false
         assertNull(
             decodeM3uPlaybackIdentityFromBase64(
-                encoded = "short",
-                decodeBase64 = { ByteArray(MAX_M3U_PLAYBACK_PAYLOAD_LENGTH + 1) },
+                encoded = "AAAA",
+                decodeBase64 = {
+                    decoderCalled = true
+                    ByteArray(MAX_M3U_PLAYBACK_PAYLOAD_LENGTH + 1)
+                },
+            ),
+        )
+        assertEquals(true, decoderCalled)
+    }
+
+    @Test fun `base64 identity parser rejects noncanonical representations`() {
+        val identityBytes = encodeM3uPlaybackIdentity(validIdentity()).toByteArray()
+        val canonical = Base64.getEncoder().encodeToString(identityBytes)
+        val noncanonical = "$canonical\n"
+
+        assertNull(
+            decodeM3uPlaybackIdentityFromBase64(
+                encoded = noncanonical,
+                decodeBase64 = { Base64.getMimeDecoder().decode(it) },
+                encodeBase64 = { Base64.getEncoder().encodeToString(it) },
             ),
         )
     }
@@ -110,17 +129,25 @@ class M3uPlaybackHeadersTest {
         val invalid = listOf(
             validIdentity().copy(url = "file:///etc/passwd"),
             validIdentity().copy(url = "http://127.0.0.1/fixture.m3u8"),
+            validIdentity().copy(url = "http://localhost./fixture.m3u8"),
+            validIdentity().copy(url = "http://fixture.local./fixture.m3u8"),
             validIdentity().copy(url = "http://2130706433/fixture.m3u8"),
+            validIdentity().copy(url = "http://0x7f000001/fixture.m3u8"),
+            validIdentity().copy(url = "http://0177.0.0.1/fixture.m3u8"),
             validIdentity().copy(url = "http://192.168.1.20/fixture.m3u8"),
             validIdentity().copy(url = "http://169.254.1.20/fixture.m3u8"),
             validIdentity().copy(referrer = "file:///tmp/embed"),
             validIdentity().copy(userAgent = "Fixture-UA\r\nInjected: true"),
             validIdentity().copy(userAgent = "Fixture\tUA"),
+            validIdentity().copy(userAgent = "Fixture\u0085UA"),
+            validIdentity().copy(name = "broken\uD800name"),
+            validIdentity().copy(name = "x".repeat(513)),
+            validIdentity().copy(userAgent = "x".repeat(1025)),
             validIdentity().copy(referrer = "https://fixture.example/\u0000embed"),
         )
 
         invalid.forEach { identity ->
-            assertNull(validateM3uPlaybackIdentity(identity))
+            assertNull("Expected invalid identity: $identity", validateM3uPlaybackIdentity(identity))
         }
     }
 
@@ -146,6 +173,19 @@ class M3uPlaybackHeadersTest {
         userAgent = "Fixture-UA",
         referrer = "https://fixture.example/embed",
     )
+
+    @Test fun `invalid remote playlist row is filtered without dropping valid neighbors`() {
+        val identities = listOf(
+            validIdentity().copy(name = "First"),
+            validIdentity().copy(name = "Broken", url = "file:///etc/passwd"),
+            validIdentity().copy(name = "Last"),
+        )
+
+        assertEquals(
+            listOf("First", "Last"),
+            identities.filterValidM3uPlaybackIdentities { it }.map { it.name },
+        )
+    }
 
     @Test fun `preserves user agent and referrer required by playlist`() {
         assertEquals(

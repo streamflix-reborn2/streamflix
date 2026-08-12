@@ -74,6 +74,7 @@ object IptvOrgProvider : IptvProvider {
             encoded = id,
             legacyFieldCount = 4,
             decodeBase64 = { Base64.decode(it, Base64.DEFAULT) },
+            encodeBase64 = { Base64.encodeToString(it, Base64.NO_WRAP) },
         )
 
     private fun decodeId(id: String): Triple<String, String, String> {
@@ -252,7 +253,15 @@ object IptvOrgProvider : IptvProvider {
                 }
             }
         }
-        return channels
+        return channels.filter { channel ->
+            isValidM3uPlaybackIdentity(
+                url = channel.url,
+                name = channel.name,
+                logo = channel.logo,
+                userAgent = channel.userAgent,
+                referrer = null,
+            )
+        }
     }
 
     override suspend fun getMovies(page: Int): List<Movie> = emptyList()

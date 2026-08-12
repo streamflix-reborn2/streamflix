@@ -17,6 +17,12 @@ internal data class M3uPlaybackIdentity(
 private const val M3U_PLAYBACK_IDENTITY_PREFIX = "m3u1;"
 internal const val MAX_M3U_PLAYBACK_ID_LENGTH = 32 * 1024
 internal const val MAX_M3U_PLAYBACK_PAYLOAD_LENGTH = 24 * 1024
+private const val MAX_M3U_URL_BYTES = 8 * 1024
+private const val MAX_M3U_NAME_BYTES = 512
+private const val MAX_M3U_LOGO_BYTES = 8 * 1024
+private const val MAX_M3U_USER_AGENT_BYTES = 1024
+private const val MAX_M3U_REFERRER_BYTES = 8 * 1024
+private val CANONICAL_BASE64 = Regex("""[A-Za-z0-9+/]*={0,2}""")
 
 internal class M3uPlaybackIdentityException : Exception("Malformed M3U playback identity")
 
@@ -54,12 +60,17 @@ private fun isPublicHttpUrl(value: String): Boolean {
     if (uri.scheme?.lowercase() !in setOf("http", "https")) return false
     if (!uri.isAbsolute || uri.userInfo != null || uri.host.isNullOrBlank()) return false
 
-    val host = uri.host.lowercase()
+    val host = uri.host.lowercase().removeSuffix(".")
     if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false
+    val numericDottedHost = host.contains('.') && host.all { it.isDigit() || it == '.' }
+    val dottedIpv4 = host.matches(Regex("""\d{1,3}(?:\.\d{1,3}){3}"""))
+    if (numericDottedHost && !dottedIpv4) return false
+    if (dottedIpv4 && host.split('.').any { it.length > 1 && it.startsWith('0') }) return false
     val isIpLiteral =
         host.contains(':') ||
         host.all(Char::isDigit) ||
-        host.matches(Regex("""\d{1,3}(?:\.\d{1,3}){3}"""))
+        host.matches(Regex("""0[xX][0-9a-fA-F]+""")) ||
+        dottedIpv4
     if (!isIpLiteral) return true
 
     val address = try {
@@ -81,14 +92,34 @@ private fun isPublicHttpUrl(value: String): Boolean {
     return true
 }
 
-private fun hasHeaderControls(value: String): Boolean =
-    value.any { it.code < 0x20 || it.code == 0x7f }
+private fun hasUnsafeText(value: String): Boolean {
+    var index = 0
+    while (index < value.length) {
+        val char = value[index]
+        when {
+            char.code < 0x20 || char.code in 0x7f..0x9f -> return true
+            char.isHighSurrogate() -> {
+                if (index + 1 >= value.length || !value[index + 1].isLowSurrogate()) return true
+                index += 2
+                continue
+            }
+            char.isLowSurrogate() -> return true
+        }
+        index++
+    }
+    return false
+}
+
+private fun validField(value: String, maxBytes: Int): Boolean =
+    !hasUnsafeText(value) && value.toByteArray(Charsets.UTF_8).size <= maxBytes
 
 internal fun validateM3uPlaybackIdentity(identity: M3uPlaybackIdentity): M3uPlaybackIdentity? {
-    if (!isPublicHttpUrl(identity.url)) return null
-    if (identity.name.isBlank()) return null
+    if (!validField(identity.url, MAX_M3U_URL_BYTES) || !isPublicHttpUrl(identity.url)) return null
+    if (identity.name.isBlank() || !validField(identity.name, MAX_M3U_NAME_BYTES)) return null
+    if (identity.logo?.let { !validField(it, MAX_M3U_LOGO_BYTES) } == true) return null
     if (identity.logo?.takeIf { it.isNotBlank() }?.let(::isPublicHttpUrl) == false) return null
-    if (identity.userAgent?.let(::hasHeaderControls) == true) return null
+    if (identity.userAgent?.let { !validField(it, MAX_M3U_USER_AGENT_BYTES) } == true) return null
+    if (identity.referrer?.let { !validField(it, MAX_M3U_REFERRER_BYTES) } == true) return null
     if (identity.referrer?.takeIf { it.isNotBlank() }?.let(::isPublicHttpUrl) == false) return null
     return identity
 }
@@ -143,13 +174,20 @@ internal fun decodeM3uPlaybackIdentityFromBase64(
     encoded: String,
     legacyFieldCount: Int = 5,
     decodeBase64: (String) -> ByteArray,
+    encodeBase64: ((ByteArray) -> String)? = null,
 ): M3uPlaybackIdentity? {
-    if (encoded.length > MAX_M3U_PLAYBACK_ID_LENGTH) return null
+    if (
+        encoded.length > MAX_M3U_PLAYBACK_ID_LENGTH ||
+        encoded.length % 4 != 0 ||
+        !CANONICAL_BASE64.matches(encoded)
+    ) return null
     val decodedBytes = try {
         decodeBase64(encoded)
     } catch (_: IllegalArgumentException) {
         return null
     }
+    val canonicalEncoding = encodeBase64?.invoke(decodedBytes)
+    if (canonicalEncoding != null && canonicalEncoding != encoded) return null
     if (decodedBytes.size > MAX_M3U_PLAYBACK_PAYLOAD_LENGTH) return null
     val decodedText = try {
         Charsets.UTF_8.newDecoder()
@@ -170,11 +208,33 @@ internal fun requireM3uPlaybackIdentityFromBase64(
     encoded: String,
     legacyFieldCount: Int = 5,
     decodeBase64: (String) -> ByteArray,
+    encodeBase64: ((ByteArray) -> String)? = null,
 ): M3uPlaybackIdentity = decodeM3uPlaybackIdentityFromBase64(
     encoded = encoded,
     legacyFieldCount = legacyFieldCount,
     decodeBase64 = decodeBase64,
+    encodeBase64 = encodeBase64,
 ) ?: throw M3uPlaybackIdentityException()
+
+internal fun isValidM3uPlaybackIdentity(
+    url: String,
+    name: String,
+    logo: String?,
+    userAgent: String?,
+    referrer: String?,
+): Boolean = validateM3uPlaybackIdentity(
+    M3uPlaybackIdentity(
+        url = url,
+        name = name,
+        logo = logo,
+        userAgent = userAgent,
+        referrer = referrer,
+    ),
+) != null
+
+internal fun <T> Iterable<T>.filterValidM3uPlaybackIdentities(
+    identityOf: (T) -> M3uPlaybackIdentity,
+): List<T> = filter { validateM3uPlaybackIdentity(identityOf(it)) != null }
 
 internal fun m3uPlaybackHeaders(
     userAgent: String?,
