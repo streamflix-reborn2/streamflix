@@ -201,7 +201,7 @@ class OptimizedStreamingCommunityProvider(
             if (lockedCurrent == observedDomain) return@withLock
 
             Log.i(TAG, "StreamingCommunity domain preference changed: $observedDomain -> $lockedCurrent")
-            delegate.rebuildService(lockedCurrent)
+            rebuildDelegateForPreference(lockedCurrent)
             observedDomain = UserPreferences.streamingcommunityDomain
             clearCaches()
             lastRecoveryAtMs = System.currentTimeMillis()
@@ -233,10 +233,20 @@ class OptimizedStreamingCommunityProvider(
             }
 
             Log.i(TAG, "Rebuilding StreamingCommunity service for $operation")
-            delegate.rebuildService(UserPreferences.streamingcommunityDomain)
+            rebuildDelegateForPreference(UserPreferences.streamingcommunityDomain)
             observedDomain = UserPreferences.streamingcommunityDomain
             clearCaches()
             lastRecoveryAtMs = System.currentTimeMillis()
+        }
+    }
+
+    private suspend fun rebuildDelegateForPreference(preferredDomain: String) {
+        if (preferredDomain.isBlank()) {
+            // Let the delegate resolve its own current/default domain. Passing an empty string would
+            // construct an invalid https:/// base URL.
+            delegate.rebuildService()
+        } else {
+            delegate.rebuildService(preferredDomain)
         }
     }
 
