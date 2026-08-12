@@ -27,6 +27,27 @@ class TvPlaybackViewReplayTest {
         assertNull(replay.candidatesForNewView(view, discoveryStateIsReplayable = false))
     }
 
+    @Test fun `accepted retained playback suppresses posted candidate replay`() {
+        val replay = TvPlaybackViewReplay<String>()
+        replay.record(listOf("a"))
+        val view = replay.beginView()
+
+        assertTrue(replay.markPlaybackAccepted(view))
+        assertNull(replay.candidatesForNewView(view, discoveryStateIsReplayable = false))
+    }
+
+    @Test fun `posted callback captures old view token and cannot run against replacement root`() {
+        val oldRoot = Any()
+        val replacementRoot = Any()
+        var replayedToken: Long? = null
+        val callback = TvPlaybackReplayCallback(41L, oldRoot)
+
+        assertFalse(callback.runIfActive(replacementRoot) { replayedToken = it })
+        assertNull(replayedToken)
+        assertTrue(callback.runIfActive(oldRoot) { replayedToken = it })
+        assertEquals(41L, replayedToken)
+    }
+
     @Test fun `active discovery state is allowed to replay itself`() {
         val replay = TvPlaybackViewReplay<String>()
         replay.record(listOf("a"))

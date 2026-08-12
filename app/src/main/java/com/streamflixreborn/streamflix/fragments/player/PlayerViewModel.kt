@@ -152,6 +152,9 @@ class PlayerViewModel(
 
     fun markTvServersObserved(viewToken: Long): Boolean = tvViewReplay.markObserved(viewToken)
 
+    fun markTvPlaybackAccepted(viewToken: Long): Boolean =
+        tvViewReplay.markPlaybackAccepted(viewToken)
+
     fun replayServersForTvView(viewToken: Long) {
         val discoveryStateIsReplayable = _state.value is State.LoadingServers ||
             _state.value is State.SuccessLoadingServers

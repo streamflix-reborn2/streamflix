@@ -156,7 +156,6 @@ class PlayerTvFragment : Fragment() {
     private var playbackListener: Player.Listener? = null
     private var recoveryPositionMs: Long? = null
     private var recoveryPlayWhenReady: Boolean? = null
-    private var tvViewReplayToken = 0L
     private var zoomToast: Toast? = null
 
     private var currentVideo: Video? = null
@@ -264,7 +263,8 @@ class PlayerTvFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        tvViewReplayToken = viewModel.beginTvPlaybackView()
+        val tvViewReplayToken = viewModel.beginTvPlaybackView()
+        val replayCallback = TvPlaybackReplayCallback(tvViewReplayToken, binding.root)
 
         initializePlayer(false)
         initializeVideo()
@@ -419,6 +419,7 @@ class PlayerTvFragment : Fragment() {
                         is PlayerViewModel.State.SuccessLoadingVideo -> {
                             when (val outcome = sourceRecovery.resolved(state.recoveryToken, state.video.source)) {
                                 is PlaybackSourceRecoveryCoordinator.Outcome.Success -> {
+                                    viewModel.markTvPlaybackAccepted(tvViewReplayToken)
                                     PlayerSettingsView.Settings.ExtraBuffering.init(state.video.extraBuffering)
                                     PlayerSettingsView.Settings.SoftwareDecoder.init(false)
                                     displayVideo(
@@ -591,7 +592,7 @@ class PlayerTvFragment : Fragment() {
             }
 
             binding.root.post {
-                if (_binding != null) viewModel.replayServersForTvView(tvViewReplayToken)
+                replayCallback.runIfActive(_binding?.root, viewModel::replayServersForTvView)
             }
         }
 

@@ -27,6 +27,9 @@ internal class TvPlaybackViewReplay<T> {
     }
 
     @Synchronized
+    fun markPlaybackAccepted(viewToken: Long): Boolean = markObserved(viewToken)
+
+    @Synchronized
     fun candidatesForNewView(
         viewToken: Long,
         discoveryStateIsReplayable: Boolean,
@@ -41,5 +44,16 @@ internal class TvPlaybackViewReplay<T> {
 
         replayRequestedViewToken = viewToken
         return latestCandidates.toList()
+    }
+}
+
+internal class TvPlaybackReplayCallback<T : Any>(
+    private val viewToken: Long,
+    private val root: T,
+) {
+    fun runIfActive(activeRoot: T?, replay: (Long) -> Unit): Boolean {
+        if (root !== activeRoot) return false
+        replay(viewToken)
+        return true
     }
 }
