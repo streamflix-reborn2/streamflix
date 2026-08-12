@@ -13,6 +13,7 @@ import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import retrofit2.HttpException
 import java.io.IOException
 import java.net.ConnectException
@@ -43,6 +44,8 @@ class OptimizedStreamingCommunityProvider(
         private const val TV_MAX_HOME_ROWS = 14
         private const val TV_MAX_ROW_ITEMS = 24
         private const val TV_MAX_FEATURED_ITEMS = 8
+        private const val MAX_METADATA_CACHE_ENTRIES = 96
+        private const val MUTEX_STRIPES = 16
     }
 
     private data class TimedValue<T>(
@@ -56,9 +59,7 @@ class OptimizedStreamingCommunityProvider(
     private val delegate = StreamingCommunityProvider(configuredLanguage)
     private val homeMutex = Mutex()
     private val recoveryMutex = Mutex()
-    private val movieMutexes = ConcurrentHashMap<String, Mutex>()
-    private val tvShowMutexes = ConcurrentHashMap<String, Mutex>()
-    private val seasonMutexes = ConcurrentHashMap<String, Mutex>()
+    private val detailMutexes = List(MUTEX_STRIPES) { Mutex() }
 
     @Volatile
     private var homeCache: TimedValue<List<Category>>? = null
@@ -128,13 +129,12 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getMovie(id: String): Movie {
         syncDomainPreference()
         movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
-        val mutex = mutexFor(movieMutexes, id)
-        return mutex.withLock {
+        return mutexFor(id).withLock {
             movieCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
             }
             withRecovery("movie:$id") { delegate.getMovie(id) }.also { movie ->
-                movieCache[id] = TimedValue(movie, System.currentTimeMillis())
+                putBounded(movieCache, id, TimedValue(movie, System.currentTimeMillis()))
             }
         }
     }
@@ -142,13 +142,12 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getTvShow(id: String): TvShow {
         syncDomainPreference()
         tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let { return it.value }
-        val mutex = mutexFor(tvShowMutexes, id)
-        return mutex.withLock {
+        return mutexFor(id).withLock {
             tvShowCache[id]?.takeIf { it.isFresh(DETAIL_TTL_MS) }?.let {
                 return@withLock it.value
             }
             withRecovery("tv-show:$id") { delegate.getTvShow(id) }.also { tvShow ->
-                tvShowCache[id] = TimedValue(tvShow, System.currentTimeMillis())
+                putBounded(tvShowCache, id, TimedValue(tvShow, System.currentTimeMillis()))
             }
         }
     }
@@ -156,8 +155,7 @@ class OptimizedStreamingCommunityProvider(
     override suspend fun getEpisodesBySeason(seasonId: String): List<Episode> {
         syncDomainPreference()
         seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let { return it.value }
-        val mutex = mutexFor(seasonMutexes, seasonId)
-        return mutex.withLock {
+        return mutexFor(seasonId).withLock {
             seasonCache[seasonId]?.takeIf { it.isFresh(SEASON_TTL_MS) }?.let {
                 return@withLock it.value
             }
@@ -165,7 +163,11 @@ class OptimizedStreamingCommunityProvider(
                 delegate.getEpisodesBySeason(seasonId)
             }.also { episodes ->
                 if (episodes.isNotEmpty()) {
-                    seasonCache[seasonId] = TimedValue(episodes, System.currentTimeMillis())
+                    putBounded(
+                        seasonCache,
+                        seasonId,
+                        TimedValue(episodes, System.currentTimeMillis()),
+                    )
                 }
             }
         }
@@ -187,7 +189,7 @@ class OptimizedStreamingCommunityProvider(
         // The legacy raw-document helper historically converted an HTTP 404 into an empty document.
         // Treat an empty iframe result as a stale-domain signal and rebuild once internally.
         performRecovery("empty-iframe:$id", force = true)
-        return delegate.getServers(id, videoType)
+        return delegate.getServers(id, videoType).also { captureResolvedDomain() }
     }
 
     override suspend fun getVideo(server: Video.Server): Video =
@@ -201,8 +203,6 @@ class OptimizedStreamingCommunityProvider(
     private fun shapeHomeForLayout(categories: List<Category>): List<Category> {
         if (!BuildConfig.APP_LAYOUT.equals("tv", ignoreCase = true)) return categories
 
-        // Trim before HomeViewModel flattens items and asks Room for matching IDs. This saves network
-        // image churn, allocations and DB work rather than merely hiding rows after the work is done.
         return categories.asSequence()
             .filter { it.list.isNotEmpty() }
             .take(TV_MAX_HOME_ROWS)
@@ -239,13 +239,13 @@ class OptimizedStreamingCommunityProvider(
     ): T {
         syncDomainPreference()
         return try {
-            block()
+            block().also { captureResolvedDomain() }
         } catch (e: Exception) {
             if (!isRecoverableStreamingCommunityError(e)) throw e
 
             Log.w(TAG, "Recoverable StreamingCommunity failure in $operation: ${e.message}")
             performRecovery(operation)
-            block()
+            block().also { captureResolvedDomain() }
         }
     }
 
@@ -259,7 +259,7 @@ class OptimizedStreamingCommunityProvider(
 
             Log.i(TAG, "Rebuilding StreamingCommunity service for $operation")
             rebuildDelegateForPreference(UserPreferences.streamingcommunityDomain)
-            observedDomain = UserPreferences.streamingcommunityDomain
+            captureResolvedDomain()
             clearCaches()
             lastRecoveryAtMs = System.currentTimeMillis()
         }
@@ -273,13 +273,35 @@ class OptimizedStreamingCommunityProvider(
         }
     }
 
-    private fun mutexFor(
-        map: ConcurrentHashMap<String, Mutex>,
+    private fun captureResolvedDomain() {
+        val resolvedHost = delegate.logo.toHttpUrlOrNull()?.host
+            ?.takeIf { it.isNotBlank() }
+            ?: return
+        if (resolvedHost == observedDomain && resolvedHost == UserPreferences.streamingcommunityDomain) {
+            return
+        }
+
+        observedDomain = resolvedHost
+        if (UserPreferences.streamingcommunityDomain != resolvedHost) {
+            Log.i(TAG, "Persisting resolved StreamingCommunity host: $resolvedHost")
+            UserPreferences.streamingcommunityDomain = resolvedHost
+        }
+    }
+
+    private fun mutexFor(key: String): Mutex {
+        val positiveHash = key.hashCode() and Int.MAX_VALUE
+        return detailMutexes[positiveHash % detailMutexes.size]
+    }
+
+    private fun <T> putBounded(
+        cache: ConcurrentHashMap<String, TimedValue<T>>,
         key: String,
-    ): Mutex {
-        map[key]?.let { return it }
-        val created = Mutex()
-        return map.putIfAbsent(key, created) ?: created
+        value: TimedValue<T>,
+    ) {
+        if (cache.size >= MAX_METADATA_CACHE_ENTRIES && !cache.containsKey(key)) {
+            cache.clear()
+        }
+        cache[key] = value
     }
 
     private fun clearCaches() {
@@ -287,9 +309,6 @@ class OptimizedStreamingCommunityProvider(
         movieCache.clear()
         tvShowCache.clear()
         seasonCache.clear()
-        movieMutexes.clear()
-        tvShowMutexes.clear()
-        seasonMutexes.clear()
     }
 }
 
