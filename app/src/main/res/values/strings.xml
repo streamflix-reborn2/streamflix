@@ -132,6 +132,12 @@
     <string name="player_not_available_it_message">Not available on Italian servers, search for it on TMDB in other languages</string>
     <string name="player_not_available_lang_message">Not available in %s, search for it on TMDB in other languages</string>
     <string name="player_retry_later_message">Video currently unavailable on this provider. Please try again later</string>
+    <string name="player_no_sources_message">No playback sources are currently available for this title.</string>
+    <string name="player_sources_load_failed_message">Unable to load playback sources. Please try again.</string>
+    <string name="player_no_working_source_message">No working playback source is currently available.</string>
+    <string name="player_source_trying">Trying %1$s…</string>
+    <string name="player_source_retrying">%1$s failed. Retrying…</string>
+    <string name="player_source_restoring">Other sources failed. Returning to %1$s…</string>
     <string name="player_next_episode_up_next">Up next</string>
     <string name="player_next_episode_action">Play now</string>
     <string name="player_next_episode_dismiss">Dismiss</string>

@@ -149,6 +149,13 @@ class PlayerTvFragment : Fragment() {
     private lateinit var gestureHelper: PlayerGestureHelper
 
     private var servers = listOf<Video.Server>()
+    private val sourceRecovery = PlaybackSourceRecoveryCoordinator<Video.Server> {
+        PlaybackSourceRecoveryCoordinator.Identity(it.id, it.name, it.src)
+    }
+    private val playbackConfirmation = PlaybackConfirmationTracker()
+    private var playbackListener: Player.Listener? = null
+    private var recoveryPositionMs: Long? = null
+    private var recoveryPlayWhenReady: Boolean? = null
     private var zoomToast: Toast? = null
 
     private var currentVideo: Video? = null
@@ -256,6 +263,8 @@ class PlayerTvFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val tvViewReplayToken = viewModel.beginTvPlaybackView()
+        val replayCallback = TvPlaybackReplayCallback(tvViewReplayToken, binding.root)
 
         initializePlayer(false)
         initializeVideo()
@@ -274,10 +283,21 @@ class PlayerTvFragment : Fragment() {
 
         // Stato Video
         viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.state.flowWithLifecycle(lifecycle, Lifecycle.State.CREATED).collect { state ->
+            viewModel.state.flowWithLifecycle(
+                viewLifecycleOwner.lifecycle,
+                Lifecycle.State.RESUMED,
+            ).collect { state ->
                 when (state) {
-                    PlayerViewModel.State.LoadingServers -> {}
+                    PlayerViewModel.State.LoadingServers -> {
+                        sourceRecovery.reset()
+                        playbackConfirmation.reset()
+                        stopProgressHandler()
+                        recoveryPositionMs = null
+                        recoveryPlayWhenReady = null
+                        servers = emptyList()
+                    }
                     is PlayerViewModel.State.SuccessLoadingServers -> {
+                        viewModel.markTvServersObserved(tvViewReplayToken)
                         servers = state.servers
 
                         val sToServer = servers.firstOrNull {
@@ -362,87 +382,61 @@ class PlayerTvFragment : Fragment() {
 
                         player.playlistMetadata = MediaMetadata.Builder()
                             .setTitle(state.toString())
-                            .setMediaServers(state.servers.map {
+                            .setMediaServers(state.servers.mapIndexed { index, server ->
                                 MediaServer(
-                                    id = it.id,
-                                    name = it.name,
+                                    id = stableServerId(index, server),
+                                    name = server.name,
                                 )
                             })
                             .build()
-                        binding.settings.setOnServerSelectedListener { server ->
-                            viewModel.getVideo(state.servers.find { server.id == it.id }!!)
+                        binding.settings.setOnServerSelectedListener { selected ->
+                            val requestedIndex = selected.id.substringBefore(':').toIntOrNull() ?: -1
+                            if (requestedIndex in state.servers.indices) {
+                                preserveRecoveryPlaybackState()
+                                player.pause()
+                                handleRecoveryOutcome(sourceRecovery.select(requestedIndex))
+                            }
                         }
                         val preferredServer = state.servers.firstOrNull {
                             it.name.equals(args.preferredServerName, ignoreCase = true)
                         }
-                        viewModel.getVideo(preferredServer ?: state.servers.first())
+                        val preferredIndex = state.servers.indexOf(preferredServer).takeIf { it >= 0 } ?: 0
+                        handleRecoveryOutcome(sourceRecovery.discover(state.servers, preferredIndex))
 
                     }
                         is PlayerViewModel.State.FailedLoadingServers -> {
-                            Toast.makeText(
-                                requireContext(),
-                                state.error.message ?: "",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            findNavController().navigateUp()
+                            if (state.kind == PlayerViewModel.State.ServerDiscoveryFailure.NO_SOURCES) {
+                                handleRecoveryOutcome(sourceRecovery.discover(emptyList()))
+                            } else {
+                                handleRecoveryOutcome(sourceRecovery.discoveryFailed(state.error))
+                            }
                         }
 
                         is PlayerViewModel.State.LoadingVideo -> {
-                            player.setMediaItem(
-                                MediaItem.Builder()
-                                    .setUri("".toUri())
-                                    .setMediaMetadata(
-                                        MediaMetadata.Builder()
-                                            .setMediaServerId(state.server.id)
-                                            .build()
-                                    )
-                                    .build()
-                            )
+                            // Keep the current item intact so automatic recovery can retain position.
                         }
 
                         is PlayerViewModel.State.SuccessLoadingVideo -> {
-                            PlayerSettingsView.Settings.ExtraBuffering.init(state.video.extraBuffering)
-                            PlayerSettingsView.Settings.SoftwareDecoder.init(false)
-                            displayVideo(state.video, state.server)
+                            when (val outcome = sourceRecovery.resolved(state.recoveryToken, state.video.source)) {
+                                is PlaybackSourceRecoveryCoordinator.Outcome.Success -> {
+                                    viewModel.markTvPlaybackAccepted(tvViewReplayToken)
+                                    PlayerSettingsView.Settings.ExtraBuffering.init(state.video.extraBuffering)
+                                    PlayerSettingsView.Settings.SoftwareDecoder.init(false)
+                                    displayVideo(
+                                        state.video,
+                                        state.server,
+                                        recoveryPositionMs,
+                                        recoveryPlayWhenReady ?: true,
+                                    )
+                                    recoveryPositionMs = null
+                                    recoveryPlayWhenReady = null
+                                }
+                                else -> handleRecoveryOutcome(outcome)
+                            }
                         }
 
                         is PlayerViewModel.State.FailedLoadingVideo -> {
-                            val nextServer = servers.getOrNull(servers.indexOf(state.server) + 1)
-                            if (nextServer != null) {
-                                viewModel.getVideo(nextServer)
-                            } else {
-                                val providerName = UserPreferences.currentProvider?.name ?: ""
-                                val isTmdb = providerName.contains("TMDb", ignoreCase = true)
-                                val isAD = providerName.contains("AfterDark", ignoreCase = true)
-
-                                val message = if (isTmdb || isAD) {
-                                    val langCode =
-                                        providerName.substringAfter("(").substringBefore(")")
-                                    val locale = Locale.forLanguageTag(langCode)
-                                    val langDisplayName =
-                                        locale.getDisplayLanguage(Locale.getDefault())
-                                            .replaceFirstChar {
-                                                if (it.isLowerCase()) it.titlecase(
-                                                    Locale.getDefault()
-                                                ) else it.toString()
-                                            }
-
-                                    if (isTmdb) getString(
-                                        R.string.player_not_available_lang_message,
-                                        langDisplayName
-                                    )
-                                    else getString(R.string.player_retry_later_message)
-                                } else {
-                                    "All servers failed to load the video."
-                                }
-
-                                Toast.makeText(
-                                    requireContext(),
-                                    message,
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                findNavController().navigateUp()
-                            }
+                            handleRecoveryOutcome(sourceRecovery.resolutionFailed(state.recoveryToken, state.error))
                         }
                     }
                 }
@@ -597,7 +591,9 @@ class PlayerTvFragment : Fragment() {
                 }
             }
 
-
+            binding.root.post {
+                replayCallback.runIfActive(_binding?.root, viewModel::replayServersForTvView)
+            }
         }
 
     override fun onPause() {
@@ -646,6 +642,62 @@ class PlayerTvFragment : Fragment() {
         }
 
         else -> false
+    }
+
+    private fun stableServerId(index: Int, server: Video.Server): String = "$index:${server.id}"
+
+    private fun stableServerId(server: Video.Server): String {
+        val index = servers.indexOfFirst { it === server }.takeIf { it >= 0 }
+            ?: servers.indexOf(server)
+        return stableServerId(index, server)
+    }
+
+    private fun preserveRecoveryPlaybackState() {
+        recoveryPositionMs = player.currentPosition.coerceAtLeast(0L)
+        recoveryPlayWhenReady = player.playWhenReady
+    }
+
+    private fun handleRecoveryOutcome(outcome: PlaybackSourceRecoveryCoordinator.Outcome<Video.Server>) {
+        when (outcome) {
+            is PlaybackSourceRecoveryCoordinator.Outcome.Resolve -> {
+                outcome.trigger?.let {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(R.string.player_source_trying, outcome.request.candidate.name),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                viewModel.getVideo(outcome.request.candidate, outcome.request.token)
+            }
+            is PlaybackSourceRecoveryCoordinator.Outcome.Retry -> {
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.player_source_retrying, outcome.request.candidate.name),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                viewModel.getVideo(outcome.request.candidate, outcome.request.token)
+            }
+            is PlaybackSourceRecoveryCoordinator.Outcome.Restore -> {
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.player_source_restoring, outcome.request.candidate.name),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                viewModel.getVideo(outcome.request.candidate, outcome.request.token)
+            }
+            PlaybackSourceRecoveryCoordinator.Outcome.NoSources -> finishRecovery(R.string.player_no_sources_message)
+            is PlaybackSourceRecoveryCoordinator.Outcome.DiscoveryFailure ->
+                finishRecovery(R.string.player_sources_load_failed_message)
+            is PlaybackSourceRecoveryCoordinator.Outcome.Exhausted ->
+                finishRecovery(R.string.player_no_working_source_message)
+            PlaybackSourceRecoveryCoordinator.Outcome.Cancelled,
+            is PlaybackSourceRecoveryCoordinator.Outcome.Success -> Unit
+        }
+    }
+
+    private fun finishRecovery(message: Int) {
+        Toast.makeText(requireContext(), getString(message), Toast.LENGTH_LONG).show()
+        findNavController().navigateUp()
     }
 
     private fun handleMediaPrevious(): Boolean {
@@ -741,10 +793,10 @@ class PlayerTvFragment : Fragment() {
             initializePlayer(currentExtraBuffering, currentSoftwareDecoder)
             player.playlistMetadata = MediaMetadata.Builder()
                 .setTitle(resolvePlayerTitle())
-                .setMediaServers(servers.map {
+                .setMediaServers(servers.mapIndexed { index, server ->
                     MediaServer(
-                        id = it.id,
-                        name = it.name,
+                        id = stableServerId(index, server),
+                        name = server.name,
                     )
                 })
                 .build()
@@ -1044,10 +1096,10 @@ class PlayerTvFragment : Fragment() {
                 initializePlayer(extraBuffering, softwareDecoder)
                 player.playlistMetadata = MediaMetadata.Builder()
                     .setTitle(resolvePlayerTitle())
-                    .setMediaServers(servers.map {
+                    .setMediaServers(servers.mapIndexed { index, candidate ->
                         MediaServer(
-                            id = it.id,
-                            name = it.name,
+                            id = stableServerId(index, candidate),
+                            name = candidate.name,
                         )
                     })
                     .build()
@@ -1073,7 +1125,7 @@ class PlayerTvFragment : Fragment() {
                     })
                     .setMediaMetadata(
                         MediaMetadata.Builder()
-                            .setMediaServerId(server.id)
+                            .setMediaServerId(stableServerId(server))
                             .build()
                     )
                     .build()
@@ -1181,11 +1233,16 @@ class PlayerTvFragment : Fragment() {
                 }
             }
 
-            player.addListener(object : Player.Listener {
+            playbackListener?.let(player::removeListener)
+            playbackListener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     super.onPlaybackStateChanged(playbackState)
 
                     if (playbackState == Player.STATE_READY) {
+                        sourceRecovery.ready()
+                        if (playbackConfirmation.sample(player.isPlaying)) {
+                            sourceRecovery.confirmedWorking()
+                        }
                         binding.pvPlayer.controller.binding.exoPlayPause.nextFocusDownId = -1
                         val videoFormat = player.videoFormat
                         updatePlayerScale()
@@ -1214,6 +1271,9 @@ class PlayerTvFragment : Fragment() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     binding.pvPlayer.keepScreenOn = isPlaying
+                    if (playbackConfirmation.sample(isPlaying)) {
+                        sourceRecovery.confirmedWorking()
+                    }
 
                     if (isPlaying) {
                         recordRecentlyWatchedStart()
@@ -1306,17 +1366,23 @@ class PlayerTvFragment : Fragment() {
                     }
                 }
 
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    playbackConfirmation.positionDiscontinuity()
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
                     super.onPlayerError(error)
                     Log.e("PlayerTvFragment", "onPlayerError: ", error)
 
-                    val nextServer = servers.getOrNull(servers.indexOf(currentServer) + 1)
-                    if (nextServer != null) {
-                        Log.i("PlayerTvFragment", "Playback failed, trying next server: ${nextServer.name}")
-                        viewModel.getVideo(nextServer)
-                    }
+                    preserveRecoveryPlaybackState()
+                    handleRecoveryOutcome(sourceRecovery.playerFailed(error))
                 }
-            })
+            }
+            player.addListener(requireNotNull(playbackListener))
 
             if (startPositionMs != null) {
                 player.seekTo(startPositionMs)
@@ -1351,6 +1417,7 @@ class PlayerTvFragment : Fragment() {
                 player.seekTo(currentPosition)
             }
 
+            playbackConfirmation.reset()
             player.prepare()
             player.playWhenReady = shouldPlay
         }
@@ -1502,6 +1569,9 @@ class PlayerTvFragment : Fragment() {
             progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
             progressRunnable = Runnable {
                 if (player.isPlaying) {
+                    if (playbackConfirmation.sample(isPlaying = true)) {
+                        sourceRecovery.confirmedWorking()
+                    }
                     val show = player.currentPosition in 3000..120000
                     showSkipIntroButton(show)
                     updateNextEpisodeOverlay()
@@ -1785,6 +1855,9 @@ class PlayerTvFragment : Fragment() {
             binding.settings.player = null
             binding.settings.subtitleView = null
             if (::player.isInitialized) {
+                playbackListener?.let(player::removeListener)
+                playbackListener = null
+                playbackConfirmation.reset()
                 player.release()
             }
             if (::mediaSession.isInitialized) {
