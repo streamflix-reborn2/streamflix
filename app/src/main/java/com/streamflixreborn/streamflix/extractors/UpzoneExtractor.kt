@@ -3,6 +3,7 @@ package com.streamflixreborn.streamflix.extractors
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -163,6 +164,18 @@ class UpzoneExtractor : Extractor() {
                     webView.settings.javaScriptEnabled = true
                     webView.settings.domStorageEnabled = true
                     webView.settings.userAgentString = userAgent
+                    // Block popup/new-tab ads the embed page tries to spawn via window.open()
+                    // during this redirect hop.
+                    webView.settings.javaScriptCanOpenWindowsAutomatically = false
+                    webView.settings.setSupportMultipleWindows(false)
+                    webView.webChromeClient = object : WebChromeClient() {
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?,
+                        ): Boolean = false
+                    }
 
                     webView.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
