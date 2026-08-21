@@ -11,19 +11,13 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.DisplayMetrics
 import android.util.Log
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.webkit.CookieManager
 import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -71,7 +65,6 @@ import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.models.WatchItem
-import com.streamflixreborn.streamflix.providers.SerienStreamProvider
 import com.streamflixreborn.streamflix.sync.CloudSyncHooks
 import com.streamflixreborn.streamflix.ui.PlayerTvView
 import com.streamflixreborn.streamflix.utils.SubtitleOffsetRenderersFactory
@@ -101,18 +94,12 @@ import java.io.File
 import java.io.FileOutputStream
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import com.streamflixreborn.streamflix.utils.BypassWebSocketServer
-import com.streamflixreborn.streamflix.utils.BypassWebSocketEndpointHelper
-import com.streamflixreborn.streamflix.utils.QrUtils
 import com.streamflixreborn.streamflix.utils.UserDataCache.toEpisode
 import com.streamflixreborn.streamflix.utils.UserDataCache.toMovie
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.util.Locale
-import java.util.UUID
 import com.streamflixreborn.streamflix.extractors.TokenManager
 
 class PlayerTvFragment : Fragment() {
@@ -122,12 +109,6 @@ class PlayerTvFragment : Fragment() {
         private const val NEXT_EPISODE_OVERLAY_ALPHA_UNFOCUSED = 0.72f
         private const val NEXT_EPISODE_OVERLAY_ALPHA_FOCUSED = 0.96f
     }
-
-    private data class BypassSession(
-        val token: String,
-        val serverUrl: String,
-        val bypassUrl: String,
-    )
 
     private var _binding: FragmentPlayerTvBinding? = null
     private val binding get() = _binding!!
@@ -153,11 +134,6 @@ class PlayerTvFragment : Fragment() {
 
     private var currentVideo: Video? = null
     private var currentServer: Video.Server? = null
-    private var waitingForBypass = false
-    private var bypassDone = false
-    private var activeBypassSession: BypassSession? = null
-    private var qrDialog: androidx.appcompat.app.AlertDialog? = null
-    private var wsServer: BypassWebSocketServer? = null
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
@@ -279,62 +255,6 @@ class PlayerTvFragment : Fragment() {
                     PlayerViewModel.State.LoadingServers -> {}
                     is PlayerViewModel.State.SuccessLoadingServers -> {
                         servers = state.servers
-
-                        val sToServer = servers.firstOrNull {
-                            isSerienStreamBypassUrl(it.id)
-                        }
-                        if (sToServer != null && !waitingForBypass && !bypassDone) {
-                            waitingForBypass = true
-
-                            val bypassUrl = buildSerienStreamBypassUrl()
-                            if (bypassUrl.isNullOrBlank()) {
-                                waitingForBypass = false
-                                Toast.makeText(
-                                    requireContext(),
-                                    "Unable to prepare TV bypass page.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@collect
-                            }
-
-                            val session = BypassSession(
-                                token = UUID.randomUUID().toString(),
-                                serverUrl = sToServer.id,
-                                bypassUrl = bypassUrl,
-                            )
-                            activeBypassSession = session
-
-                            val actualPort = startWebSocketServer()
-                            if (actualPort == -1) {
-                                clearBypassSession()
-                                Toast.makeText(
-                                    requireContext(),
-                                    "Unable to start TV bypass. Please try again.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@collect
-                            }
-
-                            val wsUrl = BypassWebSocketEndpointHelper.getAdvertisedWsUrl(actualPort)
-                                ?: return@collect
-
-                            val qrContent = "streamflix://resolve?ws=${Uri.encode(wsUrl)}&token=${Uri.encode(session.token)}"
-
-                            wsServer?.registerSession(
-                                session.token,
-                                JSONObject()
-                                    .put("url", session.bypassUrl)
-                                    .toString()
-                            )
-                            requireActivity().runOnUiThread {
-                                showQrDialog(qrContent)
-                                Log.d("Bypass", "Advertised WS URL: $wsUrl")
-                            }
-
-                            return@collect
-                        }
-
-
 
                         val providerName = UserPreferences.currentProvider?.name ?: ""
                         val isTmdb = providerName.contains("TMDb", ignoreCase = true)
@@ -618,7 +538,6 @@ class PlayerTvFragment : Fragment() {
         override fun onDestroyView() {
             super.onDestroyView()
             nextEpisodePrefetchJob?.cancel()
-            clearBypassSession(dismissDialog = true)
             releasePlayer()
             try {
                 requireContext().unregisterReceiver(chooserReceiver)
@@ -1791,231 +1710,5 @@ class PlayerTvFragment : Fragment() {
                 mediaSession.release()
             }
         }
-
-    private fun showQrDialog(content: String) {
-        val displayMetrics: DisplayMetrics = resources.displayMetrics
-        val density = displayMetrics.density
-        val dialogWidth = (displayMetrics.widthPixels * 0.72f).toInt()
-        val qrSize = minOf(
-            (dialogWidth - (density * 64).toInt()).coerceAtLeast((density * 240).toInt()),
-            (displayMetrics.heightPixels * 0.45f).toInt().coerceAtLeast((density * 240).toInt()),
-        )
-        val bitmap = QrUtils.generate(content, qrSize) ?: return
-
-        val imageView = ImageView(requireContext()).apply {
-            setImageBitmap(bitmap)
-            setBackgroundColor(Color.WHITE)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            isFocusable = true
-            isFocusableInTouchMode = true
-            requestFocus()
-        }
-
-        val instructionsView = TextView(requireContext()).apply {
-            text = buildString {
-                append("Solve captcha on phone")
-                if (BypassWebSocketEndpointHelper.isProbablyEmulator()) {
-                    append("\n\nEmulator note: set 'Bypass advertised host' in TV settings to your PC LAN IP and forward TCP 8081 to the emulator.")
-                }
-            }
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setTextColor(Color.WHITE)
-        }
-
-        val container = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(
-                (density * 24).toInt(),
-                (density * 16).toInt(),
-                (density * 24).toInt(),
-                (density * 12).toInt(),
-            )
-        }
-        container.addView(
-            imageView,
-            LinearLayout.LayoutParams(qrSize, qrSize)
-        )
-        container.addView(
-            instructionsView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-        )
-
-        val scrollView = ScrollView(requireContext()).apply {
-            isFillViewport = true
-            addView(container)
-        }
-
-        qrDialog = androidx.appcompat.app.AlertDialog.Builder(requireActivity())
-            .setTitle("Scan with phone")
-            .setView(scrollView)
-            .setCancelable(true)
-            .setOnCancelListener {
-                Log.d("Bypass", "QR dialog cancelled")
-                clearBypassSession(dismissDialog = false)
-            }
-            .create()
-
-        qrDialog?.show()
-        qrDialog?.window?.setLayout(dialogWidth, LinearLayout.LayoutParams.WRAP_CONTENT)
-    }
-
-    private fun isSerienStreamBypassUrl(url: String): Boolean {
-        return runCatching {
-            Uri.parse(url).host.equals("serienstream.to", ignoreCase = true)
-        }.getOrDefault(false)
-    }
-
-    private fun buildSerienStreamBypassUrl(): String? {
-        val provider = UserPreferences.currentProvider ?: return null
-        if (provider != SerienStreamProvider) return null
-
-        val episodeId = when (val type = args.videoType) {
-            is Video.Type.Episode -> type.id
-            is Video.Type.Movie -> return null
-        }
-
-        return "${SerienStreamProvider.baseUrl}serie/$episodeId"
-    }
-
-    private fun startWebSocketServer(): Int {
-        if (wsServer != null) return wsServer?.address?.port ?: 8081
-
-        val ports = listOf(8081, 8082, 8887, 0)
-        for (port in ports) {
-            val server = BypassWebSocketServer(port) { token, cookies ->
-                requireActivity().runOnUiThread {
-                    Log.d("BypassWS", "DONE received for token: $token")
-                    onBypassCompleted(token, cookies)
-                }
-            }
-            wsServer = server
-            try {
-                server.start()
-                if (server.awaitStart(5_000)) {
-                    val actualPort = server.address.port
-                    Log.d("BypassWS", "WebSocket server started on port $actualPort")
-                    return actualPort
-                } else {
-                    val error = server.getStartError()
-                    Log.e("BypassWS", "Server failed to start on port $port: ${error?.message}")
-                    stopWebSocketServer()
-                }
-            } catch (e: Exception) {
-                Log.e("BypassWS", "Failed to start on port $port", e)
-                stopWebSocketServer()
-            }
-        }
-        return -1
-    }
-    private fun stopWebSocketServer() {
-        try {
-            wsServer?.stop()
-        } catch (_: Exception) {}
-        wsServer = null
-    }
-
-    private fun clearBypassSession(
-        dismissDialog: Boolean = true,
-        resetBypassDone: Boolean = false,
-    ) {
-        activeBypassSession?.let { session ->
-            wsServer?.clearSession(session.token)
-        }
-        activeBypassSession = null
-        waitingForBypass = false
-        if (resetBypassDone) {
-            bypassDone = false
-        }
-        if (dismissDialog) {
-            qrDialog?.dismiss()
-        }
-        qrDialog = null
-        stopWebSocketServer()
-    }
-
-
-    private fun onBypassCompleted(token: String, cookies: String?) {
-        val session = activeBypassSession
-        if (session == null || session.token != token) {
-            Log.w("BypassWS", "Ignoring bypass completion for stale token: $token")
-            return
-        }
-
-        val extraBuffering = PlayerSettingsView.Settings.ExtraBuffering.isEnabled
-        currentExtraBuffering = extraBuffering
-
-        val okHttpClient = NetworkClient.default
-        httpDataSource = OkHttpDataSource.Factory(okHttpClient)
-
-        dataSourceFactory = DefaultDataSource.Factory(requireContext(), httpDataSource)
-
-        player = buildPlayer(extraBuffering).also { player ->
-                player.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build(),
-                    true,
-                )
-            }
-
-        // Bind new player to UI view
-        binding.pvPlayer.player = player
-        binding.settings.player = player
-        binding.settings.subtitleView = binding.pvPlayer.subtitleView
-
-        bypassDone = true
-        waitingForBypass = false
-        activeBypassSession = null
-
-        clearBypassSession(dismissDialog = true)
-        applyBypassCookies(session.serverUrl, cookies)
-
-        lifecycleScope.launch {
-            delay(300)
-
-            // 🔴 restore episode context BEFORE reload
-            when (val type = args.videoType) {
-                is Video.Type.Episode -> {
-                    EpisodeManager.setCurrentEpisode(type)
-                }
-                else -> {}
-            }
-
-            viewModel.reloadServersAfterBypass()
-        }
-    }
-
-    private fun applyBypassCookies(url: String, cookieHeader: String?) {
-        val cookies = cookieHeader?.trim().orEmpty()
-        if (cookies.isBlank()) return
-
-        val host = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
-        val targets = linkedSetOf<String>().apply {
-            if (url.isNotBlank()) add(url)
-            if (host.isNotBlank()) {
-                add("https://$host/")
-                add("http://$host/")
-            }
-        }
-        if (targets.isEmpty()) return
-
-        val cookieManager = CookieManager.getInstance()
-        cookies.split(";")
-            .map { it.trim() }
-            .filter { it.contains("=") }
-            .forEach { cookie ->
-                targets.forEach { target ->
-                    cookieManager.setCookie(target, cookie)
-                }
-            }
-        cookieManager.flush()
-    }
-
 
     }
