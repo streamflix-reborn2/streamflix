@@ -36,12 +36,29 @@ object AppLanguageManager {
     }
 
     fun getSelectedLanguage(context: Context): String {
-        val storedLanguage = context
-            .getSharedPreferences("${BuildConfig.APPLICATION_ID}.preferences", Context.MODE_PRIVATE)
-            .getString("CURRENT_LANGUAGE", null)
-            ?.takeIf { it == SYSTEM_LANGUAGE || it in getAvailableLanguageTags(context) }
+        val profileId = context
+            .getSharedPreferences("${BuildConfig.APPLICATION_ID}.profile_global", Context.MODE_PRIVATE)
+            .getString("ACTIVE_PROFILE_ID", null)
+
+        val storedLanguage = profileId?.let { id ->
+            context
+                .getSharedPreferences("${BuildConfig.APPLICATION_ID}.preferences_$id", Context.MODE_PRIVATE)
+                .getString("CURRENT_LANGUAGE", null)
+        }?.takeIf { it == SYSTEM_LANGUAGE || it in getAvailableLanguageTags(context) }
+            ?: context
+                .getSharedPreferences("${BuildConfig.APPLICATION_ID}.preferences", Context.MODE_PRIVATE)
+                .getString("CURRENT_LANGUAGE", null)
+                ?.takeIf { it == SYSTEM_LANGUAGE || it in getAvailableLanguageTags(context) }
 
         return storedLanguage ?: SYSTEM_LANGUAGE
+    }
+
+    fun getProfileLanguage(context: Context, profileId: String): String {
+        return context
+            .getSharedPreferences("${BuildConfig.APPLICATION_ID}.preferences_$profileId", Context.MODE_PRIVATE)
+            .getString("CURRENT_LANGUAGE", null)
+            ?.takeIf { it == SYSTEM_LANGUAGE || it in getAvailableLanguageTags(context) }
+            ?: SYSTEM_LANGUAGE
     }
 
     fun setSelectedLanguage(languageTag: String?) {

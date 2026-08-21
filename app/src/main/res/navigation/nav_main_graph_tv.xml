@@ -3,7 +3,17 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/nav_main_graph_tv"
-    app:startDestination="@id/providers">
+    app:startDestination="@id/profiles">
+
+    <fragment
+        android:id="@+id/profiles"
+        android:name="com.streamflixreborn.streamflix.fragments.profiles.ProfilesTvFragment"
+        android:label="fragment_profiles_tv"
+        tools:layout="@layout/fragment_profiles_tv">
+        <action
+            android:id="@+id/action_profiles_to_providers"
+            app:destination="@id/providers" />
+    </fragment>
 
     <fragment
         android:id="@+id/providers"
@@ -19,6 +29,9 @@
     <action
         android:id="@+id/action_global_providers"
         app:destination="@id/providers" />
+    <action
+        android:id="@+id/action_global_profiles"
+        app:destination="@id/profiles" />
     <action
         android:id="@+id/action_global_player"
         app:destination="@id/player" />

@@ -14,6 +14,7 @@ import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.WatchItem
 import com.streamflixreborn.streamflix.providers.Provider
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import com.streamflixreborn.streamflix.utils.UserDataCache
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
@@ -23,7 +24,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.util.Calendar
-import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -37,14 +37,52 @@ data class ProviderBackupContext(
     val provider: Provider
 )
 
+data class ExportMetadata(
+    val profileId: String?,
+    val profileName: String?,
+)
+
 class BackupRestoreManager(
     private val context: Context,
-    private val providers: List<ProviderBackupContext>
+    initialProviders: List<ProviderBackupContext>
 ) {
     private val TAG = "BackupVerify"
+    private val providerDefinitions = initialProviders.map { it.provider }.distinctBy { it.name }
+    private var providers: List<ProviderBackupContext> = initialProviders
+    private var boundProfileId: String? = ProfileManager.activeProfileId
+
+    /**
+     * DAO instances are tied to the database opened for a specific profile.
+     * Settings can remain alive while the user switches profiles, so refresh
+     * these bindings before every backup operation instead of reusing DAOs
+     * from the profile that was active when Settings was opened.
+     */
+    private fun ensureActiveProfileBindings(force: Boolean = false) {
+        val activeProfileId = ProfileManager.activeProfileId
+        if (!force && activeProfileId == boundProfileId) return
+
+        providers = providerDefinitions.mapNotNull { provider ->
+            runCatching {
+                val db = AppDatabase.getInstanceForProvider(provider.name, context, activeProfileId)
+                ProviderBackupContext(
+                    name = provider.name,
+                    movieDao = db.movieDao(),
+                    tvShowDao = db.tvShowDao(),
+                    episodeDao = db.episodeDao(),
+                    seasonDao = db.seasonDao(),
+                    provider = provider,
+                )
+            }.onFailure { error ->
+                Log.w(TAG, "Skipping ${provider.name} while rebinding profile $activeProfileId", error)
+            }.getOrNull()
+        }
+        boundProfileId = activeProfileId
+        Log.d(TAG, "Backup databases bound to profile $activeProfileId")
+    }
 
     suspend fun refreshCachesFromDatabase(): Boolean {
         return try {
+            ensureActiveProfileBindings()
             providers.forEach { buildCacheForProvider(it) }
             true
         } catch (t: Throwable) {
@@ -55,6 +93,7 @@ class BackupRestoreManager(
 
     fun exportDatabaseZip(): ByteArray? {
         return try {
+            ensureActiveProfileBindings()
             val output = ByteArrayOutputStream()
             ZipOutputStream(output).use { zip ->
                 providers.forEach { providerCtx ->
@@ -81,21 +120,26 @@ class BackupRestoreManager(
 
     fun exportUserData(): String? {
         return try {
+            ensureActiveProfileBindings()
             val root = JSONObject()
             root.put("version", 5)
             root.put("exportedAt", System.currentTimeMillis())
 
+            val activeProfile = ProfileManager.activeProfile
+            if (activeProfile != null) {
+                root.put("profileId", activeProfile.id)
+                root.put("profileName", activeProfile.name)
+            }
+
             val providersArray = JSONArray()
             for (p in providers) {
-                // Controlla se il database per questo provider ha dati rilevanti
                 val moviesToExport = p.movieDao.getAll()
                     .filter { it.isWatched || it.watchedDate != null || it.watchHistory != null || it.isFavorite || it.lastPlayedAtMillis != null }
                 val tvShowsToExport = p.tvShowDao.getAllForBackup()
                     .filter { it.isWatching || it.isFavorite || it.lastPlayedAtMillis != null }
                 val episodesToExport = p.episodeDao.getAllForBackup()
                     .filter { it.isWatched || it.watchedDate != null || it.watchHistory != null }
-                
-                // Se non ci sono dati, saltiamo il provider per tenere il file pulito.
+
                 if (moviesToExport.isEmpty() && tvShowsToExport.isEmpty() && episodesToExport.isEmpty()) {
                     continue
                 }
@@ -103,7 +147,6 @@ class BackupRestoreManager(
                 val providerObj = JSONObject()
                 providerObj.put("name", p.name)
 
-                // Movies
                 val moviesArray = JSONArray()
                 moviesToExport.forEach { movie ->
                     val obj = JSONObject().apply {
@@ -123,7 +166,6 @@ class BackupRestoreManager(
                 }
                 providerObj.put("movies", moviesArray)
 
-                // TV Shows
                 val tvShowsArray = JSONArray()
                 tvShowsToExport.forEach { show ->
                     val obj = JSONObject().apply {
@@ -142,7 +184,6 @@ class BackupRestoreManager(
                 }
                 providerObj.put("tvShows", tvShowsArray)
 
-                // Seasons
                 val seasonsArray = JSONArray()
                 p.seasonDao.getAllForBackup()
                     .forEach { season ->
@@ -157,7 +198,6 @@ class BackupRestoreManager(
                     }
                 providerObj.put("seasons", seasonsArray)
 
-                // Episodes
                 val episodesArray = JSONArray()
                 episodesToExport.forEach { ep ->
                     val obj = JSONObject().apply {
@@ -188,11 +228,23 @@ class BackupRestoreManager(
         }
     }
 
+    fun parseExportMetadata(json: String): ExportMetadata? {
+        return try {
+            val obj = JSONObject(json)
+            ExportMetadata(
+                profileId = obj.optString("profileId", null)?.takeIf { it.isNotEmpty() && it != "null" },
+                profileName = obj.optString("profileName", null)?.takeIf { it.isNotEmpty() && it != "null" },
+            )
+        } catch (t: Throwable) {
+            null
+        }
+    }
 
-    // Eseguo l'intera operazione di importazione come transazione per l'atomicità
     @Transaction
     suspend fun importUserData(json: String): Boolean {
         return try {
+            ensureActiveProfileBindings(force = true)
+            Log.d(TAG, "Import target profile: ${ProfileManager.activeProfileId}")
             val obj = JSONObject(json)
             val providersArray = obj.optJSONArray("providers") ?: return false
             val backupVersion = obj.optInt("version", 1)
@@ -207,7 +259,6 @@ class BackupRestoreManager(
                     continue
                 }
 
-                // 1. Import Seasons (NUOVO)
                 providerObj.optJSONArray("seasons")?.let { arr ->
                     val seasonsToSave = mutableListOf<Season>()
                     for (j in 0 until arr.length()) {
@@ -228,7 +279,6 @@ class BackupRestoreManager(
                     }
                 }
 
-                // 2. Import TV Shows
                 providerObj.optJSONArray("tvShows")?.let { arr ->
                     for (j in 0 until arr.length()) {
                         val s = arr.optJSONObject(j) ?: continue
@@ -255,7 +305,6 @@ class BackupRestoreManager(
                     }
                 }
 
-                // 3. Import Movies
                 providerObj.optJSONArray("movies")?.let { arr ->
                     for (j in 0 until arr.length()) {
                         val m = arr.optJSONObject(j) ?: continue
@@ -265,7 +314,7 @@ class BackupRestoreManager(
                         val watchedDate = m.optLongOrNull("watchedDate")?.toCalendar()
                         val watchHistory = m.optJSONObject("watchHistory")?.toWatchHistory()
                         val lastPlayedAtMillis = m.optLongOrNull("lastPlayedAtMillis")
-                        
+
                         val movie = Movie(
                             id = m.optString("id", ""),
                             title = m.optString("title", "")
@@ -284,7 +333,6 @@ class BackupRestoreManager(
                     }
                 }
 
-                // 4. Import Episodes
                 providerObj.optJSONArray("episodes")?.let { arr ->
                     for (j in 0 until arr.length()) {
                         val e = arr.optJSONObject(j) ?: continue
@@ -335,9 +383,9 @@ class BackupRestoreManager(
     }
 
     private fun addDatabaseFilesToZip(zip: ZipOutputStream, providerName: String) {
-        val dbName = sanitizedDbName(providerName)
+        val prefixedDbName = AppDatabase.databaseNameFor(providerName).removeSuffix(".db")
         listOf("", "-wal", "-shm").forEach { suffix ->
-            val file = context.getDatabasePath("$dbName.db$suffix")
+            val file = context.getDatabasePath("$prefixedDbName.db$suffix")
             if (!file.exists()) return@forEach
             zip.putNextEntry(ZipEntry("databases/${file.name}"))
             file.inputStream().use { input -> input.copyTo(zip) }
@@ -363,14 +411,6 @@ class BackupRestoreManager(
             }
         }
     }
-
-    private fun sanitizedDbName(providerName: String): String {
-        return providerName.lowercase(Locale.getDefault())
-            .replace("[^a-z0-9]".toRegex(), "_")
-            .replace("__+".toRegex(), "_")
-            .trim('_')
-    }
-
 
 }
 private fun Long.toCalendar(): Calendar = Calendar.getInstance().apply { timeInMillis = this@toCalendar }

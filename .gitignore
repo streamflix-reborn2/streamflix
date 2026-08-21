@@ -11,3 +11,4 @@ local.properties
 *.salive
 *.log
 app/src/main/cpp/native-lib.cpp
+app/src/main/cpp/dummy-lib.cpp

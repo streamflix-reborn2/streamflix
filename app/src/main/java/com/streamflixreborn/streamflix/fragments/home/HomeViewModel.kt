@@ -37,7 +37,9 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
-class HomeViewModel(database: AppDatabase) : ViewModel() {
+class HomeViewModel : ViewModel() {
+
+    private val appContext = StreamFlixApp.instance.applicationContext
 
     private data class HomeHistory(
         val continueWatching: List<AppAdapter.Item>,
@@ -59,6 +61,8 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
         return orderedExisting + appendedNew
     }
 
+    private fun db(): AppDatabase = AppDatabase.getInstance(appContext)
+
     private val _state = MutableStateFlow<State>(State.Loading)
     private val continueWatchingTvShowCache = ConcurrentHashMap<String, TvShow>()
     private val continueWatchingSeasonEpisodesCache = ConcurrentHashMap<String, List<Episode>>()
@@ -76,24 +80,26 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
                 if (cache != null && cache.continueWatchingMovies.isNotEmpty()) {
                     emit(cache.continueWatchingMovies.map { it.toMovie() })
                 } else {
-                    emitAll(database.movieDao().getWatchingMovies())
+                    emitAll(db().movieDao().getWatchingMovies())
                 }
             }.flowOn(Dispatchers.IO),
             _userDataCache.transformLatest { cache ->
                 if (cache != null && cache.continueWatchingEpisodes.isNotEmpty()) {
                     emit(cache.continueWatchingEpisodes.map { it.toEpisode() })
                 } else {
-                    emitAll(database.episodeDao().getWatchingEpisodes())
+                    emitAll(db().episodeDao().getWatchingEpisodes())
                 }
             }.flowOn(Dispatchers.IO),
             _userDataCache.transformLatest { cache ->
                 if (cache != null && cache.continueWatchingEpisodes.isNotEmpty()) {
                     emit(cache.continueWatchingEpisodes.map { it.toEpisode() })
                 } else {
-                    emitAll(database.episodeDao().getNextEpisodesToWatch())
+                    emitAll(db().episodeDao().getNextEpisodesToWatch())
                 }
             }.flowOn(Dispatchers.IO),
-            database.tvShowDao().getAll().flowOn(Dispatchers.IO),
+            _state.transformLatest {
+                emitAll(db().tvShowDao().getAll())
+            }.flowOn(Dispatchers.IO),
         ) { watchingMovies, watchingEpisodes, watchNextEpisodes, tvShows ->
 
             val allEpisodes = (watchingEpisodes + watchNextEpisodes)
@@ -106,7 +112,7 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
             val seasonsMap = if (seasonIds.isEmpty()) {
                 emptyMap()
             } else {
-                database.seasonDao()
+                db().seasonDao()
                     .getByIds(seasonIds)
                     .associateBy { it.id }
             }
@@ -173,10 +179,10 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
                         }
                     } as List<AppAdapter.Item>
             }.flowOn(Dispatchers.IO),
-            
+
             // FAVORITE MOVIES
             database.movieDao().getFavorites().flowOn(Dispatchers.IO),
-            
+
             // FAVORITE TV SHOWS
             database.tvShowDao().getFavorites().flowOn(Dispatchers.IO),
 
@@ -194,7 +200,7 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
                     if (movies.isEmpty()) {
                         emit(emptyList())
                     } else {
-                        emitAll(database.movieDao().getByIds(movies.map { it.id }))
+                        emitAll(db().movieDao().getByIds(movies.map { it.id }))
                     }
                 }
                 else -> emit(emptyList<Movie>())
@@ -211,7 +217,7 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
                     if (tvShows.isEmpty()) {
                         emit(emptyList())
                     } else {
-                        emitAll(database.tvShowDao().getByIds(tvShows.map { it.id }))
+                        emitAll(db().tvShowDao().getByIds(tvShows.map { it.id }))
                     }
                 }
                 else -> emit(emptyList<TvShow>())

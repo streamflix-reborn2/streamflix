@@ -5,8 +5,6 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="16dp"
-    android:focusable="true"
-    android:focusableInTouchMode="true"
     android:padding="10dp"
     android:background="?attr/app_background_color">
 
@@ -14,8 +12,10 @@
         android:id="@+id/iv_navigation_header_icon"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:duplicateParentState="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
         android:foreground="@drawable/fg_navigation_header_icon_tv"
+        android:nextFocusDown="@id/fl_header_profile_avatar"
         android:padding="2dp"
         android:scaleType="fitCenter"
         app:layout_constraintStart_toStartOf="parent"
@@ -52,5 +52,76 @@
         app:layout_constraintTop_toBottomOf="@id/tv_navigation_header_title"
         tools:ignore="SmallSp"
         tools:text="Subtitle" />
+
+    <View
+        android:id="@+id/view_provider_profile_divider"
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_marginTop="12dp"
+        android:background="#33FFFFFF"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_navigation_header_subtitle" />
+
+    <FrameLayout
+        android:id="@+id/fl_header_profile_avatar"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginTop="8dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:nextFocusUp="@id/iv_navigation_header_icon"
+        android:nextFocusDown="@id/search"
+        android:background="@drawable/bg_profile_header_tv"
+        android:foreground="@drawable/fg_item_provider_image_tv"
+        app:layout_constraintStart_toStartOf="@id/iv_navigation_header_icon"
+        app:layout_constraintTop_toBottomOf="@id/view_provider_profile_divider">
+
+        <ImageView
+            android:id="@+id/iv_header_profile_avatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/tv_header_profile_initial"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            tools:text="D" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/tv_header_profile_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:maxLines="1"
+        android:paddingEnd="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:visibility="gone"
+        app:layout_constraintStart_toEndOf="@id/fl_header_profile_avatar"
+        app:layout_constraintTop_toTopOf="@id/fl_header_profile_avatar"
+        tools:ignore="SmallSp"
+        tools:text="Profile Name" />
+
+    <TextView
+        android:id="@+id/tv_header_profile_subtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:maxLines="1"
+        android:paddingEnd="10dp"
+        android:text="@string/main_menu_change_profile"
+        android:textColor="#B3FFFFFF"
+        android:textSize="9sp"
+        android:visibility="gone"
+        app:layout_constraintStart_toEndOf="@id/fl_header_profile_avatar"
+        app:layout_constraintTop_toBottomOf="@id/tv_header_profile_name"
+        tools:ignore="SmallSp" />
 
 </com.tanasi.navigation.widget.NavigationSlideHeaderView>

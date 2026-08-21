@@ -16,7 +16,6 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.streamflixreborn.streamflix.R
 import com.streamflixreborn.streamflix.adapters.AppAdapter
-import com.streamflixreborn.streamflix.database.AppDatabase
 import com.streamflixreborn.streamflix.databinding.FragmentHomeTvBinding
 import com.streamflixreborn.streamflix.models.Category
 import com.streamflixreborn.streamflix.models.Episode
@@ -44,7 +43,7 @@ class HomeTvFragment : Fragment() {
         val factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
-                return HomeViewModel(AppDatabase.getInstance(requireContext())) as T
+                return HomeViewModel() as T
             }
         }
         ViewModelProvider(this, factory).get(providerKey, HomeViewModel::class.java)
@@ -128,7 +127,6 @@ class HomeTvFragment : Fragment() {
     
     override fun onStart() {
         super.onStart()
-        // Riavvia il carosello se i dati sono già stati caricati e il fragment è visibile
         appAdapter.items
             .filterIsInstance<Category>()
             .firstOrNull { it.name == Category.FEATURED }

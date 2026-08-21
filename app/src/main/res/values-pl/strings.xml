@@ -20,6 +20,7 @@
     <string name="providers_choose_title">Wybierz dostawce</string>
 
     <string name="main_menu_change_provider">Zmien dostawce</string>
+    <string name="main_menu_change_profile">Zmień profil</string>
     <string name="main_menu_search">Szukaj</string>
     <string name="main_menu_home">Start</string>
     <string name="main_menu_movies">Filmy</string>
@@ -164,6 +165,36 @@
     <string name="settings_app_language_french">Francuski</string>
     <string name="settings_app_language_italian">Wloski</string>
     <string name="settings_app_language_polish">Polski</string>
+    <string name="profile_who_is_watching">Kto ogląda?</string>
+    <string name="profile_no_profiles">Brak profili</string>
+    <string name="profile_default_name">Domyślny</string>
+    <string name="profile_current">Bieżący profil</string>
+    <string name="profile_add_btn">Dodaj Profil</string>
+    <string name="profile_manage_btn">Zarządzaj</string>
+    <string name="profile_edit_btn">Edytuj Profil</string>
+    <string name="profile_manage_title">Zarządzaj Profilami</string>
+    <string name="profile_create_title">Nowy Profil</string>
+    <string name="profile_rename_title">Zmień nazwę Profilu</string>
+    <string name="profile_delete_title">Usuń Profil</string>
+    <string name="profile_delete_message">Czy na pewno chcesz usunąć "%s"?</string>
+    <string name="profile_name_hint">Nazwa profilu</string>
+    <string name="profile_action_switch">Przełącz na ten profil</string>
+    <string name="profile_switch_pin_title">Wprowadź PIN profilu</string>
+    <string name="profile_switch_pin_message">Wprowadź rodzicielski PIN bieżącego profilu, aby przełączyć profil.</string>
+    <string name="profile_action_rename">Zmień nazwę</string>
+    <string name="profile_action_delete">Usuń</string>
+    <string name="profile_created">Profil utworzony</string>
+    <string name="profile_renamed">Nazwa profilu zmieniona</string>
+    <string name="profile_deleted">Profil usunięty</string>
+    <string name="profile_delete_error">Nie można usunąć profilu</string>
+    <string name="profile_delete_default_error">Nie można usunąć domyślnego profilu</string>
+    <string name="profile_import_warning_title">Import między Profilami</string>
+    <string name="profile_import_warning_message">Te dane zostały wyeksportowane z profilu "%1$s". Zostaną zaimportowane do bieżącego profilu "%2$s". Dane bieżącego profilu zostaną nadpisane. Kontynuować?</string>
+    <string name="settings_screen_profiles_title">Profile</string>
+    <string name="settings_screen_profiles_summary">Zarządzaj profilami użytkowników i ich danymi</string>
+    <string name="settings_profile_edit_summary">Zmień nazwę bieżącego profilu</string>
+    <string name="settings_profile_manage_summary">Przeglądaj, zmieniaj nazwę lub usuwaj profile</string>
+    <string name="settings_profile_add_summary">Utwórz nowy profil</string>
     <string name="supabase_instructions_title">Instrukcje</string>
     <string name="supabase_instructions_summary">Otwórz w przeglądarce szczegółową instrukcję konfiguracji konta i synchronizacji Supabase</string>
 </resources>

@@ -27,6 +27,7 @@
     <string name="providers_choose_title">Anbieter auswählen</string>
 
     <string name="main_menu_change_provider">Anbieter wechseln</string>
+    <string name="main_menu_change_profile">Profil wechseln</string>
     <string name="main_menu_search">Suche</string>
     <string name="main_menu_home">Startseite</string>
     <string name="main_menu_movies">Filme</string>
@@ -494,6 +495,36 @@
     <string name="settings_refresh_cache_confirm">Cache aktualisieren?</string>
     <string name="settings_refresh_cache_message">Dadurch werden dein Wiedergabeverlauf und die App-Daten aus der Datenbank neu geladen.</string>
     <string name="settings_refresh_cache_success">Cache erfolgreich aktualisiert</string>
+    <string name="profile_who_is_watching">Wer schaut zu?</string>
+    <string name="profile_no_profiles">Noch keine Profile</string>
+    <string name="profile_default_name">Standard</string>
+    <string name="profile_current">Aktuelles Profil</string>
+    <string name="profile_add_btn">Profil hinzufügen</string>
+    <string name="profile_manage_btn">Verwalten</string>
+    <string name="profile_edit_btn">Profil bearbeiten</string>
+    <string name="profile_manage_title">Profile verwalten</string>
+    <string name="profile_create_title">Neues Profil</string>
+    <string name="profile_rename_title">Profil umbenennen</string>
+    <string name="profile_delete_title">Profil löschen</string>
+    <string name="profile_delete_message">Bist du sicher, dass du "%s" löschen möchtest?</string>
+    <string name="profile_name_hint">Profilname</string>
+    <string name="profile_action_switch">Zu diesem Profil wechseln</string>
+    <string name="profile_switch_pin_title">Profil-PIN eingeben</string>
+    <string name="profile_switch_pin_message">Gib die Eltern-PIN des aktuellen Profils ein, um das Profil zu wechseln.</string>
+    <string name="profile_action_rename">Umbenennen</string>
+    <string name="profile_action_delete">Löschen</string>
+    <string name="profile_created">Profil erstellt</string>
+    <string name="profile_renamed">Profil umbenannt</string>
+    <string name="profile_deleted">Profil gelöscht</string>
+    <string name="profile_delete_error">Profil kann nicht gelöscht werden</string>
+    <string name="profile_delete_default_error">Das Standardprofil kann nicht gelöscht werden</string>
+    <string name="profile_import_warning_title">Profilübergreifender Import</string>
+    <string name="profile_import_warning_message">Diese Daten wurden aus dem Profil "%1$s" exportiert. Sie werden in das aktuelle Profil "%2$s" importiert. Die Daten des aktuellen Profils werden überschrieben. Fortfahren?</string>
+    <string name="settings_screen_profiles_title">Profile</string>
+    <string name="settings_screen_profiles_summary">Benutzerprofile und ihre Daten verwalten</string>
+    <string name="settings_profile_edit_summary">Aktuelles Profil umbenennen</string>
+    <string name="settings_profile_manage_summary">Profile ansehen, umbenennen oder löschen</string>
+    <string name="settings_profile_add_summary">Ein neues Profil erstellen</string>
     <string name="supabase_instructions_title">Anleitung</string>
     <string name="supabase_instructions_summary">Die ausführliche Anleitung zur Einrichtung von Supabase-Konto und Synchronisierung im Browser öffnen</string>
 </resources>

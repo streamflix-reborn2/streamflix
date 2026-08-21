@@ -15,6 +15,7 @@ import com.streamflixreborn.streamflix.models.WatchItem
 import com.streamflixreborn.streamflix.providers.Provider
 import com.streamflixreborn.streamflix.sync.CloudSyncHooks
 import com.streamflixreborn.streamflix.ui.UserDataNotifier
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -43,9 +44,39 @@ object UserDataCache {
 
     private fun cacheKey(provider: Provider): String {
         val baseUrlKey = provider.baseUrl.trim().trimEnd('/')
-        return listOf(provider.name, baseUrlKey)
+        val profileId = ProfileManager.activeProfileId ?: "default"
+        return listOf(profileId, provider.name, baseUrlKey)
             .filter { it.isNotEmpty() }
             .joinToString("__")
+    }
+
+    /**
+     * Moves cache files written before profiles existed into the first default
+     * profile. The old cache key was provider + base URL; the new key adds the
+     * profile ID. Keeping this migration here also makes it safe for callers
+     * that read the cache before the next database refresh.
+     */
+    fun migrateLegacyCacheToDefaultProfile(context: Context, providers: Iterable<Provider>) {
+        if (ProfileManager.activeProfileId != "default") return
+
+        providers.forEach { provider ->
+            val baseUrlKey = provider.baseUrl.trim().trimEnd('/')
+            val legacyKey = listOf(provider.name, baseUrlKey)
+                .filter { it.isNotEmpty() }
+                .joinToString("__")
+            val legacyFile = cacheFile(context, legacyKey)
+            val profileFile = cacheFile(context, cacheKey(provider))
+
+            if (legacyFile.exists() && !profileFile.exists()) {
+                runCatching {
+                    profileFile.parentFile?.mkdirs()
+                    legacyFile.copyTo(profileFile, overwrite = false)
+                    Log.i("UserDataCache", "Migrated legacy cache for ${provider.name} to default profile")
+                }.onFailure { error ->
+                    Log.w("UserDataCache", "Could not migrate legacy cache for ${provider.name}", error)
+                }
+            }
+        }
     }
 
     private fun cacheFile(context: Context, cacheKey: String): File {

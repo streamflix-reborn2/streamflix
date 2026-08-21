@@ -2,6 +2,41 @@
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <string name="app_name">Streamflix</string>
 
+    <string name="profile_who_is_watching">Who\'s watching?</string>
+    <string name="profile_no_profiles">No profiles yet</string>
+    <string name="profile_default_name">Default</string>
+    <string name="profile_current">Current profile</string>
+    <string name="profile_card_content_description">Profile %1$s</string>
+    <string name="profile_add_btn">Add Profile</string>
+    <string name="profile_manage_btn">Manage</string>
+    <string name="profile_edit_btn">Edit Profile</string>
+    <string name="settings_profile_edit_summary">Rename the current profile</string>
+    <string name="profile_manage_title">Manage Profiles</string>
+    <string name="profile_create_title">New Profile</string>
+    <string name="profile_rename_title">Rename Profile</string>
+    <string name="profile_action_color">Change color</string>
+    <string name="profile_color_title">Profile color</string>
+    <string name="profile_color_changed">Profile color changed</string>
+    <string name="profile_delete_title">Delete Profile</string>
+    <string name="profile_delete_message">Are you sure you want to delete \"%s\"?</string>
+    <string name="profile_name_hint">Profile name</string>
+    <string name="profile_action_switch">Switch to this profile</string>
+    <string name="profile_switch_pin_title">Enter profile PIN</string>
+    <string name="profile_switch_pin_message">Enter the current profile’s parental PIN to switch profiles.</string>
+    <string name="profile_action_rename">Rename</string>
+    <string name="profile_action_delete">Delete</string>
+    <string name="profile_created">Profile created</string>
+    <string name="profile_renamed">Profile renamed</string>
+    <string name="profile_deleted">Profile deleted</string>
+    <string name="profile_delete_error">Cannot delete profile</string>
+    <string name="profile_delete_default_error">Cannot delete the default profile</string>
+    <string name="profile_import_warning_title">Cross-Profile Import</string>
+    <string name="profile_import_warning_message">This data was exported from profile \"%1$s\". It will be imported into the current profile \"%2$s\". The current profile\'s data will be overwritten. Continue?</string>
+    <string name="settings_screen_profiles_title">Profiles</string>
+    <string name="settings_screen_profiles_summary">Manage user profiles and their data</string>
+    <string name="settings_profile_manage_summary">View, rename, or delete profiles</string>
+    <string name="settings_profile_add_summary">Create a new profile</string>
+
     <string name="loading_error_title">An error occurred</string>
     <string name="loading_error_retry">Retry</string>
     <string name="loading_error_clear_cache">Clear Cache</string>
@@ -28,6 +63,7 @@
     <string name="providers_choose_title">Choose a provider</string>
 
     <string name="main_menu_change_provider">Change provider</string>
+    <string name="main_menu_change_profile">Change profile</string>
     <string name="main_menu_search">Search</string>
     <string name="main_menu_home">Home</string>
     <string name="main_menu_movies">Movies</string>

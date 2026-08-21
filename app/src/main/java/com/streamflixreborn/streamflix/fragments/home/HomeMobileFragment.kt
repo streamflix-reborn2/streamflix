@@ -13,13 +13,13 @@ import androidx.navigation.fragment.findNavController
 import com.bumptech.glide.Glide
 import com.streamflixreborn.streamflix.R
 import com.streamflixreborn.streamflix.adapters.AppAdapter
-import com.streamflixreborn.streamflix.database.AppDatabase
 import com.streamflixreborn.streamflix.databinding.FragmentHomeMobileBinding
 import com.streamflixreborn.streamflix.models.Category
 import com.streamflixreborn.streamflix.models.Episode
 import com.streamflixreborn.streamflix.models.Movie
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.ui.SpacingItemDecoration
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.dp
 import com.streamflixreborn.streamflix.utils.CacheUtils
@@ -42,7 +42,7 @@ class HomeMobileFragment : Fragment() {
         val factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
-                return HomeViewModel(AppDatabase.getInstance(requireContext())) as T
+                return HomeViewModel() as T
             }
         }
         ViewModelProvider(this, factory).get(providerKey, HomeViewModel::class.java)
@@ -118,6 +118,11 @@ class HomeMobileFragment : Fragment() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (_binding != null) setupProfileHeader()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         appAdapter.onSaveInstanceState(binding.rvHome)
@@ -148,8 +153,27 @@ class HomeMobileFragment : Fragment() {
             }
         }
         
+        setupProfileHeader()
+
         // Ensure background image is hidden on mobile to show theme color
         binding.ivHomeBackground.visibility = View.GONE
+    }
+
+    private fun setupProfileHeader() {
+        val profile = ProfileManager.activeProfile
+        if (profile != null) {
+            val drawable = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 8f * binding.ivProfileAvatar.resources.displayMetrics.density
+                setColor(profile.avatarColor)
+            }
+            binding.ivProfileAvatar.setImageDrawable(drawable)
+            binding.tvProfileInitial.text = profile.name.firstOrNull()?.uppercase() ?: "?"
+            binding.tvProfileName.text = profile.name
+        }
+        binding.llProfile.setOnClickListener {
+            findNavController().navigate(R.id.profiles)
+        }
     }
 
     private fun displayHome(categories: List<Category>) {

@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.drawable.GradientDrawable
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -12,6 +13,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
 import com.streamflixreborn.streamflix.R
 import com.streamflixreborn.streamflix.adapters.AppAdapter
@@ -19,6 +21,7 @@ import com.streamflixreborn.streamflix.databinding.FragmentProvidersMobileBindin
 import com.streamflixreborn.streamflix.models.Provider as ModelProvider
 import com.streamflixreborn.streamflix.providers.Provider
 import com.streamflixreborn.streamflix.ui.SpacingItemDecoration
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.dp
 import kotlinx.coroutines.launch
@@ -40,6 +43,11 @@ class ProvidersMobileFragment : Fragment() {
     ): View {
         _binding = FragmentProvidersMobileBinding.inflate(inflater, container, false)
         return binding.root
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (_binding != null) setupProfileHeader()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -85,6 +93,8 @@ class ProvidersMobileFragment : Fragment() {
 
 
     private fun initializeProviders() {
+        setupProfileHeader()
+
         binding.sProvidersLanguage.apply {
             class Language(
                 val code: String,
@@ -164,6 +174,27 @@ class ProvidersMobileFragment : Fragment() {
             addItemDecoration(
                 SpacingItemDecoration(32.dp(requireContext()))
             )
+        }
+    }
+
+    private fun setupProfileHeader() {
+        binding.llProfile.apply {
+            val profile = ProfileManager.activeProfile
+            if (profile != null) {
+                val drawable = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8f * binding.ivProfileAvatar.resources.displayMetrics.density
+                    setColor(profile.avatarColor)
+                }
+                binding.ivProfileAvatar.setImageDrawable(drawable)
+                binding.tvProfileInitial.text = profile.name.firstOrNull()?.uppercase() ?: "?"
+                binding.tvProfileName.text = profile.name
+            } else {
+                binding.tvProfileName.text = "Profile"
+            }
+            setOnClickListener {
+                findNavController().navigate(R.id.profiles)
+            }
         }
     }
 

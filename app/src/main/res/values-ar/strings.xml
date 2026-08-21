@@ -26,6 +26,7 @@
 	<string name="providers_choose_title">اختر مزود الخدمة</string>
 
 	<string name="main_menu_change_provider">تغيير المزود</string>
+	<string name="main_menu_change_profile">تغيير الملف الشخصي</string>
 	<string name="main_menu_search">بحث</string>
 	<string name="main_menu_home">الرئيسية</string>
 	<string name="main_menu_movies">أفلام</string>
@@ -498,6 +499,36 @@
     <string name="settings_refresh_cache_confirm">تحديث ذاكرة التخزين المؤقت؟</string>
     <string name="settings_refresh_cache_message">سيؤدي ذلك إلى إعادة تحميل سجل المشاهدة وبيانات التطبيق من قاعدة البيانات.</string>
     <string name="settings_refresh_cache_success">تم تحديث ذاكرة التخزين المؤقت بنجاح</string>
+    <string name="profile_who_is_watching">من يشاهد؟</string>
+    <string name="profile_no_profiles">لا توجد ملفات تعريف بعد</string>
+    <string name="profile_default_name">الافتراضي</string>
+    <string name="profile_current">الملف الشخصي الحالي</string>
+    <string name="profile_add_btn">إضافة ملف تعريف</string>
+    <string name="profile_manage_btn">إدارة</string>
+    <string name="profile_edit_btn">تعديل الملف الشخصي</string>
+    <string name="profile_manage_title">إدارة الملفات الشخصية</string>
+    <string name="profile_create_title">ملف تعريف جديد</string>
+    <string name="profile_rename_title">إعادة تسمية الملف الشخصي</string>
+    <string name="profile_delete_title">حذف الملف الشخصي</string>
+    <string name="profile_delete_message">هل أنت متأكد أنك تريد حذف "%s"؟</string>
+    <string name="profile_name_hint">اسم الملف الشخصي</string>
+    <string name="profile_action_switch">التبديل إلى هذا الملف الشخصي</string>
+    <string name="profile_switch_pin_title">أدخل رمز PIN للملف الشخصي</string>
+    <string name="profile_switch_pin_message">أدخل رمز PIN الأبوي للملف الشخصي الحالي للتبديل بين الملفات الشخصية.</string>
+    <string name="profile_action_rename">إعادة تسمية</string>
+    <string name="profile_action_delete">حذف</string>
+    <string name="profile_created">تم إنشاء الملف الشخصي</string>
+    <string name="profile_renamed">تمت إعادة تسمية الملف الشخصي</string>
+    <string name="profile_deleted">تم حذف الملف الشخصي</string>
+    <string name="profile_delete_error">لا يمكن حذف الملف الشخصي</string>
+    <string name="profile_delete_default_error">لا يمكن حذف الملف الشخصي الافتراضي</string>
+    <string name="profile_import_warning_title">استيراد عبر الملفات الشخصية</string>
+    <string name="profile_import_warning_message">تم تصدير هذه البيانات من الملف الشخصي "%1$s". سيتم استيرادها إلى الملف الشخصي الحالي "%2$s". سيتم استبدال بيانات الملف الشخصي الحالي. هل تريد المتابعة؟</string>
+    <string name="settings_screen_profiles_title">الملفات الشخصية</string>
+    <string name="settings_screen_profiles_summary">إدارة ملفات المستخدم الشخصية وبياناتهم</string>
+    <string name="settings_profile_edit_summary">إعادة تسمية الملف الشخصي الحالي</string>
+    <string name="settings_profile_manage_summary">عرض أو إعادة تسمية أو حذف الملفات الشخصية</string>
+    <string name="settings_profile_add_summary">إنشاء ملف شخصي جديد</string>
     <string name="supabase_instructions_title">التعليمات</string>
     <string name="supabase_instructions_summary">فتح الدليل التفصيلي لإعداد حساب ومزامنة Supabase في المتصفح</string>
 </resources>

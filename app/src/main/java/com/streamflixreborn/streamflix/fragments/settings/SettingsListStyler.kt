@@ -108,12 +108,14 @@ internal object SettingsListStyler {
         ).also {
             view.setTag(R.id.settings_row_defaults, it)
         }
-        val titleText = title.text?.toString().orEmpty()
         val hasChevron = view.findViewById<View>(R.id.settings_chevron) != null
         if (!hasChevron) {
+            val isCategoryHeader = summary == null && !view.isClickable && !view.isFocusable
+            val categoryTopMargin = if (isCategoryHeader) context.dp(if (isTv) 18 else 12) else defaults.marginTop
+
             layoutParams?.setMargins(
                 defaults.marginLeft,
-                defaults.marginTop,
+                categoryTopMargin,
                 defaults.marginRight,
                 defaults.marginBottom,
             )
