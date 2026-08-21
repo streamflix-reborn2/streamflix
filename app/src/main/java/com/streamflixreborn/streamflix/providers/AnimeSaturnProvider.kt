@@ -10,16 +10,18 @@ import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.utils.DnsResolver
+import android.util.Base64
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
-import okhttp3.dnsoverhttps.DnsOverHttps
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import retrofit2.Retrofit
 import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -29,13 +31,14 @@ import retrofit2.http.POST
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 object AnimeSaturnProvider : Provider {
     override val name = "AnimeSaturn"
-    override val baseUrl = "https://www.animesaturn.cx"
-    
-    override val logo = "https://www.animesaturn.cx/immagini/PlanetAS.png"
+    override val baseUrl = "https://www.animesaturn.net"
+
+    override val logo = "https://www.animesaturn.net/assets/img/saturn.png"
     override val language = "it"
 
     private const val USER_AGENT = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -70,21 +73,40 @@ object AnimeSaturnProvider : Provider {
         @GET
         suspend fun getEpisodeByUrl(@Url url: String): ResponseBody
 
+        /** Fetches an `/embed/<id>` page; a Referer is required by the site. */
         @Headers(USER_AGENT)
-        @GET("filter")
-        suspend fun getFilter(): Document
+        @GET
+        suspend fun getEmbedPage(@Url url: String, @Header("Referer") referer: String): ResponseBody
+
+        /** Fetches an `/embed/<id>/playlist` XHR response; needs Referer + XHR headers. */
+        @Headers(
+            USER_AGENT,
+            "Accept: application/json, text/plain, */*",
+            "X-Requested-With: XMLHttpRequest"
+        )
+        @GET
+        suspend fun getPlaylist(@Url url: String, @Header("Referer") referer: String): ResponseBody
 
         @Headers(USER_AGENT)
-        @GET("filter")
-        suspend fun getGenre(@Query("categories[0]") categoryId: String, @Query("page") page: Int? = null): Document
+        @GET("genres")
+        suspend fun getGenres(): Document
 
+        // /filter?key=<query>&categories=<id>
         @Headers(USER_AGENT)
         @GET("filter")
-        suspend fun getTvShows(@Query("page") page: Int? = null): Document
+        suspend fun getFilter(
+            @Query("key") key: String? = null,
+            @Query("categories") categories: String? = null
+        ): Document
 
+        // /filter/<page>?key=<query>&categories=<id>
         @Headers(USER_AGENT)
-        @GET("animelist")
-        suspend fun getSearch(@Query("search") query: String, @Query("page") page: Int? = null): Document
+        @GET("filter/{page}")
+        suspend fun getFilterPage(
+            @Path("page") page: Int,
+            @Query("key") key: String? = null,
+            @Query("categories") categories: String? = null
+        ): Document
     }
 
     private interface KitsuService {
@@ -93,13 +115,13 @@ object AnimeSaturnProvider : Provider {
     }
 
     private val service = AnimeSaturnService.build(baseUrl)
-    
+
     private val kitsuService by lazy {
         val client = OkHttpClient.Builder()
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(30, TimeUnit.SECONDS)
             .build()
-            
+
         Retrofit.Builder()
             .baseUrl("https://kitsu.io/api/")
             .client(client)
@@ -135,22 +157,22 @@ object AnimeSaturnProvider : Provider {
                   }
                 }
             """.trimIndent()
-            
+
             val requestBody = JSONObject().apply {
                 put("query", query)
             }.toString().toRequestBody("application/json".toMediaType())
-            
+
             val response = kitsuService.getEpisodes(requestBody)
             val responseString = response.string()
             val jsonResponse = JSONObject(responseString)
-            
+
             val episodes = jsonResponse
                 .optJSONObject("data")
                 ?.optJSONObject("lookupMapping")
                 ?.optJSONObject("episodes")
                 ?.optJSONArray("nodes")
                 ?: return emptyMap()
-            
+
             val extras = mutableMapOf<Int, EpisodeExtra>()
             for (i in 0 until episodes.length()) {
                 try {
@@ -165,7 +187,7 @@ object AnimeSaturnProvider : Provider {
                         .optJSONObject("titles")
                         ?.optString("canonical", "")
                         ?: ""
-                    
+
                     if (number > 0) {
                         extras[number] = EpisodeExtra(
                             thumbnail = thumbnail.takeIf { it.isNotEmpty() },
@@ -176,41 +198,205 @@ object AnimeSaturnProvider : Provider {
                     continue
                 }
             }
-            
+
             extras
         } catch (e: Exception) {
             emptyMap()
         }
     }
 
+    // -----------------------
+    // HELPERS
+    // -----------------------
+
+    /** `/anime/<slug>` and `/episode/<slug>/ep-N` both identify a show by `<slug>`. */
+    private fun slugFromHref(href: String): String? {
+        return Regex("/(?:anime|episode)/([^/?#]+)").find(href)?.groupValues?.get(1)
+    }
+
+    /**
+     * Episode links on the detail page point at `/episode/<slug>/ep-N`, which is
+     * only an interstitial landing page. The actual player is `/anime/<slug>/ep-N`,
+     * so episode ids are always stored/fetched in that form.
+     */
+    private fun toPlayerPath(href: String): String {
+        return href.replaceFirst(Regex("^(?:https?://[^/]+)?/episode/"), "/anime/")
+    }
+
+    /** Reads the value next to a label in the detail page's `.ag-meta` box. */
+    private fun metaValue(document: Document, label: String): String {
+        val container = document.selectFirst(".ag-meta") ?: return ""
+        val row = container.children().firstOrNull { row ->
+            row.children().firstOrNull()?.text()?.trim()?.equals(label, ignoreCase = true) == true
+        }
+        return row?.children()?.lastOrNull()?.text()?.trim() ?: ""
+    }
+
+    // -----------------------
+    // SATURN EMBED PROTOCOL
+    //
+    // The player page hands Alpine a JSON blob (`x-data="watchPage({...})"`)
+    // describing the episode's servers. Each internal server points at an
+    // `/embed/<id>` page whose real source is fetched from
+    // `/embed/<id>/playlist` and returned base64-encoded, XOR'd against the
+    // same token that authorises the request.
+    // -----------------------
+
+    /** Pulls the `x-data="watchPage({...})"` blob out of a player page. */
+    private fun parseWatchPageData(html: String): JSONObject? {
+        val document = Jsoup.parse(html)
+
+        val raw = document.select("[x-data]")
+            .map { it.attr("x-data") }
+            .firstOrNull { it.trimStart().startsWith("watchPage(") }
+            ?: return null
+
+        val start = raw.indexOf("(")
+        val end = raw.lastIndexOf(")")
+        if (start == -1 || end <= start) return null
+
+        return try {
+            JSONObject(raw.substring(start + 1, end))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** True for the internal `play.<site>/embed/<id>` links this extractor handles. */
+    private fun isSaturnEmbed(link: String?): Boolean {
+        if (link.isNullOrEmpty()) return false
+        return try {
+            Regex("/embed/\\d+").containsMatchIn(link.toHttpUrl().encodedPath)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** base64 → XOR against the repeating token, matching the embed page's `dec()`. */
+    private fun decodeEmbedPayload(payload: String?, key: String): String {
+        if (payload.isNullOrEmpty()) return ""
+
+        val k = key.ifEmpty { "as" }
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
+        val out = ByteArray(bytes.size)
+
+        for (i in bytes.indices) {
+            out[i] = (bytes[i].toInt() xor k[i % k.length].code).toByte()
+        }
+
+        return String(out, Charsets.ISO_8859_1)
+    }
+
+    /**
+     * Prefers the `window.__E={i,k,e}` blob on the embed page (authoritative,
+     * and survives the query string being reshaped), falling back to the
+     * embed URL's own path/query.
+     */
+    private suspend fun readEmbedParams(embedUrl: String, referer: String): Triple<String, String, String> {
+        val url = embedUrl.toHttpUrl()
+        val fallbackId = Regex("/embed/(\\d+)").find(url.encodedPath)?.groupValues?.get(1) ?: ""
+        val fallbackToken = url.queryParameter("token") ?: ""
+        val fallbackExpires = url.queryParameter("expires") ?: ""
+
+        try {
+            val html = service.getEmbedPage(embedUrl, referer).string()
+            val match = Regex(
+                "window\\.__E\\s*=\\s*\\{\\s*i\\s*:\\s*(\\d+)\\s*,\\s*k\\s*:\\s*\"([^\"]+)\"\\s*,\\s*e\\s*:\\s*(\\d+)"
+            ).find(html)
+
+            if (match != null) {
+                return Triple(match.groupValues[1], match.groupValues[2], match.groupValues[3])
+            }
+        } catch (e: Exception) {
+            // fall through to the URL-derived params
+        }
+
+        if (fallbackId.isEmpty() || fallbackToken.isEmpty()) {
+            throw Exception("Saturn embed: could not read embed parameters")
+        }
+
+        return Triple(fallbackId, fallbackToken, fallbackExpires)
+    }
+
+    /**
+     * Resolves an internal Saturn embed link to a playable source. The result
+     * is usually a progressive MP4 rather than HLS.
+     */
+    private suspend fun resolveSaturnEmbed(embedUrl: String?): String {
+        val trimmed = embedUrl?.trim().orEmpty()
+        if (trimmed.isEmpty()) throw Exception("Saturn embed: missing server source")
+        if (!isSaturnEmbed(trimmed)) {
+            throw Exception("Saturn embed: not an internal embed link (${trimmed.take(80)})")
+        }
+
+        val (embedId, token, expires) = readEmbedParams(trimmed, "$baseUrl/")
+
+        val embedHttpUrl = trimmed.toHttpUrl()
+        val defaultPort = HttpUrl.defaultPort(embedHttpUrl.scheme)
+        val origin = "${embedHttpUrl.scheme}://${embedHttpUrl.host}" +
+                if (embedHttpUrl.port != defaultPort) ":${embedHttpUrl.port}" else ""
+
+        val playlistUrl = "$origin/embed/${URLEncoder.encode(embedId, "UTF-8")}/playlist" +
+                "?token=${URLEncoder.encode(token, "UTF-8")}&expires=${URLEncoder.encode(expires, "UTF-8")}"
+
+        val playlistBody = service.getPlaylist(playlistUrl, trimmed).string()
+        val payload = JSONObject(playlistBody).optString("d", "")
+
+        val source = decodeEmbedPayload(payload, token)
+        if (source.isEmpty()) throw Exception("Saturn embed: empty video source")
+        if (source.startsWith("youtube/")) {
+            throw Exception("Saturn embed: source is a YouTube embed, not a playable stream")
+        }
+
+        return source
+    }
+
+    private fun dedupeById(shows: List<TvShow>): List<TvShow> {
+        val seen = mutableSetOf<String>()
+        return shows.filter { seen.add(it.id) }
+    }
+
+    private suspend fun filterPage(page: Int, key: String? = null, categories: String? = null): Document {
+        return if (page > 1) service.getFilterPage(page, key, categories) else service.getFilter(key, categories)
+    }
+
+    private suspend fun getGenreList(): List<Genre> {
+        val document = service.getGenres()
+        return document.select("a.genre-card").mapNotNull { a ->
+            val id = Regex("categories=(\\d+)").find(a.attr("href"))?.groupValues?.get(1)
+            val name = a.selectFirst(".genre-card__name")?.text()?.trim()
+            if (id.isNullOrEmpty() || name.isNullOrEmpty()) null else Genre(id = id, name = name)
+        }
+    }
+
+    // -----------------------
+    // HOME
+    // -----------------------
+
     override suspend fun getHome(): List<Category> {
         return try {
             val document = service.getHome()
-            
+
             val categories = mutableListOf<Category>()
-            
-            val featuredAnimes = document.select(".carousel-item").mapNotNull { parseFeaturedAnime(it) }
+
+            val featuredAnimes = document.select(".hero-slide").mapNotNull { parseFeaturedAnime(it) }
             if (featuredAnimes.isNotEmpty()) {
                 categories.add(Category(Category.FEATURED, featuredAnimes))
             }
-            
-            val sections = document.select("div.container.p-3.shadow.rounded.bg-dark-as-box")
-            sections.forEach { section ->
-                val titleElement = section.selectFirst("h4 .saturn-title-special")
-                val title = titleElement?.text()?.trim() ?: ""
-                
-                val iconElement = titleElement?.selectFirst("i")
-                val iconClass = iconElement?.attr("class") ?: ""
-                
-                if (iconClass.contains("bi-plus-lg") || iconClass.contains("bi-shuffle")) {
-                    val animes = section.select(".anime-card-newanime").mapNotNull { parseNewAnime(it) }
-                    
-                    if (animes.isNotEmpty()) {
-                        categories.add(Category(title, animes))
-                    }
+
+            // Every rail on the home page is a <section> with an `h2.section-title`
+            // heading and a set of `a.ac` cards.
+            document.select("section").forEach { section ->
+                val title = section.selectFirst("h2.section-title")?.text()?.trim() ?: ""
+                if (title.isEmpty()) return@forEach
+
+                val animes = section.select("a.ac").mapNotNull { parseAnimeCard(it) }
+
+                if (animes.isNotEmpty()) {
+                    categories.add(Category(title, dedupeById(animes)))
                 }
             }
-            
+
             categories
         } catch (e: Exception) {
             emptyList()
@@ -219,12 +405,12 @@ object AnimeSaturnProvider : Provider {
 
     private fun parseFeaturedAnime(element: Element): TvShow? {
         return try {
-            val banner = element.selectFirst("img.d-block.w-100")?.attr("src") ?: return null
-            
-            val captionLink = element.selectFirst(".carousel-caption a") ?: return null
-            val animeId = captionLink.attr("href").substringAfterLast("/")
-            val title = captionLink.text().trim()
-            
+            val href = element.selectFirst("a.hero-btn-info")?.attr("href") ?: return null
+            val animeId = slugFromHref(href) ?: return null
+
+            val title = element.selectFirst(".hero-title")?.text()?.trim() ?: ""
+            val banner = element.selectFirst("img.hero-slide__bg")?.attr("src") ?: ""
+
             TvShow(
                 id = animeId,
                 title = title,
@@ -235,14 +421,20 @@ object AnimeSaturnProvider : Provider {
         }
     }
 
-    private fun parseNewAnime(element: Element): TvShow? {
+    /**
+     * Parses the `a.ac` anime card used by every grid/rail on the site (home,
+     * search results, related titles).
+     */
+    private fun parseAnimeCard(element: Element): TvShow? {
         return try {
-            val linkElement = element.selectFirst("a[href]") ?: return null
-            val href = linkElement.attr("href")
-            val title = linkElement.attr("title").trim()
-            val poster = element.selectFirst("img.new-anime")?.attr("src") ?: ""
-            val animeId = href.substringAfterLast("/")
-            
+            val href = element.attr("href")
+            val animeId = slugFromHref(href) ?: return null
+
+            val poster = element.selectFirst(".ac__poster img")?.attr("src") ?: ""
+            val title = element.selectFirst(".ac__title")?.text()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: element.selectFirst(".ac__poster img")?.attr("alt")?.trim()
+                ?: ""
+
             TvShow(
                 id = animeId,
                 title = title,
@@ -253,69 +445,39 @@ object AnimeSaturnProvider : Provider {
         }
     }
 
+    // -----------------------
+    // SEARCH / GENRES
+    // -----------------------
+
     override suspend fun search(query: String, page: Int): List<AppAdapter.Item> {
         return try {
             if (query.isBlank()) {
                 if (page > 1) return emptyList()
-                
-                val document = service.getFilter()
-                val genres = document.select("#categories option").map { option ->
-                    val genreId = option.attr("value")
-                    val genreName = option.text().trim()
-                    Genre(id = genreId, name = genreName)
-                }
-                return genres
-            }
-            
-            val document = service.getSearch(query, if (page > 1) page else null)
 
-            val totalPages = document.toString().substringAfter("totalPages:", "1").trim().takeWhile { it.isDigit() }.toIntOrNull() ?: 1
-            
-            if (page > totalPages) {
-                return emptyList()
+                return getGenreList()
             }
-            
-            val results = document.select(".list-group-item.bg-dark-as-box-shadow").map { item ->
-                val linkElement = item.selectFirst(".info-archivio h3 a.badge-archivio") ?: return@map null
-                val href = linkElement.attr("href")
-                val title = linkElement.text().trim()
-                val animeId = href.substringAfterLast("/")
-                val poster = item.selectFirst("img.locandina-archivio")?.attr("src") ?: ""
-                
-                TvShow(id = animeId, title = title, poster = poster)
-            }.filterNotNull()
-            
-            results
+
+            val document = filterPage(page, key = query.trim())
+
+            document.select("a.ac").mapNotNull { parseAnimeCard(it) }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
     override suspend fun getGenre(id: String, page: Int): Genre {
-        return try {
-            val document = service.getGenre(id, if (page > 1) page else null)
-
-            val totalPages = document.toString().substringAfter("totalPages:", "1").trim().takeWhile { it.isDigit() }.toIntOrNull() ?: 1
-            
-            if (page > totalPages) {
-                val genreName = service.getFilter()
-                    .select("#categories option")
-                    .find { it.attr("value") == id }
-                    ?.text()?.trim() ?: id
-                return Genre(id = id, name = genreName, shows = emptyList())
-            }
-            
-            val genreName = service.getFilter()
-                .select("#categories option")
-                .find { it.attr("value") == id }
-                ?.text()?.trim() ?: id
-            
-            val shows = document.select("div.row.pt-4.justify-content-center .anime-card-newanime")
-                .mapNotNull { parseNewAnime(it) }
-            
-            Genre(id = id, name = genreName, shows = shows)
+        val name = try {
+            getGenreList().find { it.id == id }?.name ?: id
         } catch (e: Exception) {
-            Genre(id = id, name = id)
+            id
+        }
+
+        return try {
+            val document = filterPage(page, categories = id)
+            val shows = document.select("a.ac").mapNotNull { parseAnimeCard(it) }
+            Genre(id = id, name = name, shows = shows)
+        } catch (e: Exception) {
+            Genre(id = id, name = name, shows = emptyList())
         }
     }
 
@@ -325,96 +487,56 @@ object AnimeSaturnProvider : Provider {
 
     override suspend fun getTvShows(page: Int): List<TvShow> {
         return try {
-            val document = service.getTvShows(if (page > 1) page else null)
-
-            val totalPages = document.toString().substringAfter("totalPages:", "1").trim().takeWhile { it.isDigit() }.toIntOrNull() ?: 1
-
-            if (page > totalPages) {
-                return emptyList()
-            }
-
-            val results = document
-                .select("div.row.pt-4.justify-content-center .anime-card-newanime")
-                .mapNotNull { parseNewAnime(it) }
-
-            results
+            val document = filterPage(page)
+            document.select("a.ac").mapNotNull { parseAnimeCard(it) }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
+    // -----------------------
+    // DETAILS
+    // -----------------------
+
     override suspend fun getTvShow(id: String): TvShow {
         return try {
             val document = service.getAnime(id)
-            
-            val posterElement = document.selectFirst(".cover-anime")
-            val poster = posterElement?.attr("src") ?: ""
-            
-            val titleElement = document.selectFirst(".anime-title-as b")
-            val title = titleElement?.text()?.trim() ?: ""
-            
-            val ratingElement = document.selectFirst("i.bi-star")?.parent()
-            val ratingText = ratingElement?.text()?.trim() ?: ""
-            val rating = ratingText.substringAfter("Voto:").trim().substringBefore("/5").toDoubleOrNull()
-            
-            val releasedText = document.select(".container.shadow.rounded.bg-dark-as-box")
-                .find { it.text().contains("Data di uscita:") }
-                ?.text()
-                ?.substringAfter("Data di uscita:")
-                ?.trim()
-                ?: ""
-            val released = releasedText.split(" ")
-                .find { it.length == 4 && it.all { char -> char.isDigit() } } ?: ""
-            
-            val runtimeText = document.select(".container.shadow.rounded.bg-dark-as-box")
-                .find { it.text().contains("Durata episodi:") }
-                ?.text()
-                ?.substringAfter("Durata episodi:")
-                ?.trim()
-                ?: ""
-            val runtime = runtimeText.substringBefore(" ").toIntOrNull()
-            
-            val overviewElement = document.selectFirst("#full-trama") ?: document.selectFirst("#shown-trama")
-            val overview = overviewElement?.text()?.trim() ?: ""
-            
-            val trailer = document.selectFirst("iframe#trailer-iframe")
-                ?.attr("src")
-                ?.replace("/embed/", "/watch?v=")
-            
-            val seasons = document.select(".episode-range").map { rangeElement ->
-                val rangeText = rangeElement.text().trim()
-                Season(
-                    id = "$id-$rangeText",
-                    number = 0,
-                    title = rangeText
-                )
-            }.ifEmpty {
-                listOf(
-                    Season(
-                        id = id,
-                        number = 0,
-                        title = "Episodi"
-                    )
-                )
+
+            val title = document.selectFirst(".ag-head h1")?.text()?.trim() ?: ""
+            val poster = document.selectFirst(".ag-poster img")?.attr("src") ?: ""
+            val banner = document.selectFirst("img.anime-hero__bg")?.attr("src") ?: ""
+
+            val ratingText = document.selectFirst("#anime-score")?.text()?.trim() ?: ""
+            val rating = ratingText.toDoubleOrNull()
+
+            // "04 Aprile 2026" — only the year is meaningful downstream.
+            val releasedText = metaValue(document, "Data di uscita")
+            val released = releasedText.split(Regex("\\s+")).firstOrNull { it.matches(Regex("\\d{4}")) } ?: ""
+
+            // "23 min"
+            val runtime = metaValue(document, "Durata").trim().takeWhile { it.isDigit() }.toIntOrNull()
+
+            val overview = document.selectFirst(".ag-story .story-clip")?.text()?.trim() ?: ""
+
+            val genres = document.select(".ag-genres a.chip").mapNotNull { a ->
+                val genreName = a.text().trim()
+                if (genreName.isEmpty()) return@mapNotNull null
+                val genreId = Regex("categories=(\\d+)").find(a.attr("href"))?.groupValues?.get(1) ?: genreName
+                Genre(id = genreId, name = genreName)
             }
-            
-            val recommendations = document
-                .select("div.owl-item.anime-card-newanime.main-anime-card")
-                .mapNotNull { parseNewAnime(it) }
-            
-            val genres = document
-                .select("a.badge.badge-light.generi-as")
-                .mapNotNull { a ->
-                    val name = a.text().trim()
-                    if (name.isNotEmpty()) Genre(id = name, name = name) else null
-                }
+
+            // Long series split their episode list into range tabs (1–50, 51–100, …);
+            // each becomes a "season" so the client can page through them.
+            val seasons = parseSeasons(document, id)
+
+            val recommendations = document.select(".ag-related a.ac").mapNotNull { parseAnimeCard(it) }
 
             TvShow(
                 id = id,
                 title = title,
                 poster = poster,
+                banner = banner,
                 overview = overview,
-                trailer = trailer,
                 rating = rating,
                 released = released,
                 runtime = runtime,
@@ -431,14 +553,37 @@ object AnimeSaturnProvider : Provider {
         throw Exception("Movies not supported")
     }
 
+    /**
+     * Range tab labels use an en dash ("1–50"); normalised to a plain hyphen so
+     * a season id stays `<slug>-<from>-<to>` and round-trips through
+     * `getEpisodesBySeason`.
+     */
+    private fun parseRangeLabels(document: Document): List<String> {
+        return document.select(".ep-range-tab").map {
+            it.text().trim().replace("–", "-").replace("—", "-").replace(Regex("\\s+"), "")
+        }
+    }
+
+    private fun parseSeasons(document: Document, animeId: String): List<Season> {
+        val ranges = parseRangeLabels(document)
+        if (ranges.isEmpty()) {
+            return listOf(Season(id = animeId, number = 0, title = "Episodi"))
+        }
+        return ranges.map { range -> Season(id = "$animeId-$range", number = 0, title = range) }
+    }
+
+    // -----------------------
+    // EPISODES
+    // -----------------------
+
     override suspend fun getEpisodesBySeason(seasonId: String): List<Episode> {
         return try {
             val animeId: String
             val targetRange: String?
-            
+
             val rangePattern = Regex("-(\\d+-\\d+)$")
             val match = rangePattern.find(seasonId)
-            
+
             if (match != null) {
                 targetRange = match.groupValues[1]
                 animeId = seasonId.substringBeforeLast("-$targetRange")
@@ -446,147 +591,117 @@ object AnimeSaturnProvider : Provider {
                 animeId = seasonId
                 targetRange = null
             }
-            
+
             val document = service.getAnime(animeId)
-            
+
             val anilistLink = document.selectFirst("a[href*='anilist.co/anime/']")
             val anilistHref = anilistLink?.attr("href")
-            
+
             val anilistId = anilistHref
                 ?.substringAfter("/anime/", "")
                 ?.trimEnd('/')
                 ?.takeWhile { it.isDigit() }
                 ?.toIntOrNull()
-            
+
             val extrasByNumber = if (anilistId != null) {
                 fetchEpisodeThumbnails(anilistId)
             } else {
                 emptyMap()
             }
-            
-            val episodeRanges = document.select(".episode-range")
-            
-            val episodes = if (episodeRanges.isNotEmpty()) {
-                episodeRanges.flatMap { rangeElement ->
-                    val rangeText = rangeElement.text().trim()
-                    val tabId = rangeElement.attr("href").substringAfter("#")
-                    
-                    if (targetRange == null || rangeText == targetRange) {
-                        val tabContent = document.selectFirst("#$tabId")
-                        if (tabContent != null) {
-                            tabContent.select(".episodi-link-button a").mapIndexed { index, button ->
-                                val episodeUrl = button.attr("href")
-                                val episodeTitle = button.text().trim()
-                                
-                                val rawEpisodeToken = episodeUrl.substringAfterLast("-ep-")
-                                val episodeNumber = rawEpisodeToken
-                                    .substringBefore('.')
-                                    .toIntOrNull() ?: (index + 1)
-                                val extras = extrasByNumber[episodeNumber]
-                                val thumbnail = extras?.thumbnail
-                                val kitsuTitle = extras?.title
-                                val displayTitle = if (rawEpisodeToken.contains('.')) {
-                                    episodeTitle
-                                } else {
-                                    kitsuTitle ?: episodeTitle
-                                }
-                                
-                                Episode(
-                                    id = episodeUrl,
-                                    number = episodeNumber,
-                                    title = displayTitle,
-                                    poster = thumbnail
-                                )
-                            }
-                        } else {
-                            emptyList()
-                        }
-                    } else {
-                        emptyList()
-                    }
+
+            fun parseTile(tile: Element, index: Int): Episode {
+                val href = tile.attr("href")
+                val rawText = tile.text().trim()
+
+                // "/anime/<slug>/ep-7" — decimals ("ep-7.5") keep the site's own label.
+                val rawToken = href.substringAfterLast("/ep-")
+                val isDecimal = rawToken.contains(".")
+                val episodeNumber = rawToken.substringBefore(".").toIntOrNull() ?: (index + 1)
+
+                val extras = extrasByNumber[episodeNumber]
+                val displayTitle = if (isDecimal) rawText else (extras?.title ?: rawText)
+                val thumbnail = extras?.thumbnail
+
+                return Episode(
+                    id = toPlayerPath(href),
+                    number = episodeNumber,
+                    title = displayTitle,
+                    poster = thumbnail
+                )
+            }
+
+            val ranges = parseRangeLabels(document)
+
+            val tiles: List<Element> = if (ranges.isNotEmpty()) {
+                // Every range's tiles are already in the HTML, hidden behind an
+                // Alpine `x-show="active === <index>"` panel.
+                val rangeIndex = if (targetRange != null) ranges.indexOf(targetRange) else -1
+
+                if (rangeIndex >= 0) {
+                    document.select("[x-show=\"active === $rangeIndex\"]").select("a.ep-tile")
+                } else {
+                    document.select("a.ep-tile")
                 }
             } else {
-                document.select(".episodi-link-button a").mapIndexed { index, button ->
-                    val episodeUrl = button.attr("href")
-                    val episodeTitle = button.text().trim()
-                    
-                    val rawEpisodeToken = episodeUrl.substringAfterLast("-ep-")
-                    val episodeNumber = rawEpisodeToken
-                        .substringBefore('.')
-                        .toIntOrNull() ?: (index + 1)
-                    val extras = extrasByNumber[episodeNumber]
-                    val thumbnail = extras?.thumbnail
-                    val kitsuTitle = extras?.title
-                    val displayTitle = if (rawEpisodeToken.contains('.')) {
-                        episodeTitle
-                    } else {
-                        kitsuTitle ?: episodeTitle
-                    }
-                    
-                    Episode(
-                        id = episodeUrl,
-                        number = episodeNumber,
-                        title = displayTitle,
-                        poster = thumbnail
-                    )
-                }
+                document.select("a.ep-tile")
             }
-            
-            episodes.sortedBy { it.number }
+
+            tiles.mapIndexed { i, tile -> parseTile(tile, i) }.sortedBy { it.number }
         } catch (e: Exception) {
             emptyList()
         }
     }
 
+    // -----------------------
+    // SERVERS
+    // -----------------------
+
     override suspend fun getServers(id: String, videoType: Video.Type): List<Video.Server> {
         return try {
-            val response = service.getEpisodeByUrl(id)
-            val document = Jsoup.parse(response.string())
-            
-            val servers = mutableListOf<Video.Server>()
-            
-            val streamingLink = document.selectFirst("a[href*='watch?file=']")
-            if (streamingLink != null) {
-                val watchUrl = streamingLink.attr("href")
-                
-                val videoResponse = service.getEpisodeByUrl(watchUrl)
-                val videoDocument = Jsoup.parse(videoResponse.string())
-                
-                val videoSource = videoDocument.selectFirst("source[type='video/mp4']")
-                val videoUrl = videoSource?.attr("src")
-                
-                if (videoUrl != null) {
-                    servers.add(
+            // `id` is the player page path, e.g. "/anime/<slug>/ep-1"; tolerate an
+            // `/episode/...` link being passed in directly.
+            val playerPath = toPlayerPath(id)
+            val html = service.getEpisodeByUrl(playerPath).string()
+            val data = parseWatchPageData(html)
+
+            val serversArray = data?.optJSONArray("servers")
+            val resolved = mutableListOf<Video.Server>()
+
+            if (serversArray != null) {
+                for (i in 0 until serversArray.length()) {
+                    val serverObj = serversArray.optJSONObject(i) ?: continue
+                    val link = serverObj.optString("link", "").takeIf { it.isNotEmpty() }
+                    if (!isSaturnEmbed(link)) continue
+
+                    val slug = serverObj.optString("slug", "").takeIf { it.isNotEmpty() }
+                    val serverId = slug ?: serverObj.opt("id")?.toString().orEmpty()
+                    val serverName = serverObj.optString("name", "").takeIf { it.isNotEmpty() } ?: "AnimeSaturn"
+
+                    resolved.add(
                         Video.Server(
-                            id = videoUrl,
-                            name = "AnimeSaturn",
-                            src = videoUrl
+                            id = serverId,
+                            name = serverName,
+                            src = link!!
                         )
                     )
-                } else {
-                    val scriptTags = videoDocument.select("script[type*=javascript]")
-                    for (script in scriptTags) {
-                        val scriptData = script.data()
-                        if ("jwplayer" in scriptData && "file" in scriptData) {
-                            val fileRegex = Regex("""file\s*:\s*["']([^"']+)["']""")
-                            val match = fileRegex.find(scriptData)
-                            if (match != null) {
-                                val fileUrl = match.groupValues[1]
-                                servers.add(
-                                    Video.Server(
-                                        id = fileUrl,
-                                        name = "AnimeSaturn",
-                                        src = fileUrl
-                                    )
-                                )
-                                break
-                            }
-                        }
-                    }
                 }
             }
-            
-            servers
+
+            if (resolved.isNotEmpty()) return resolved
+
+            // Some episodes only carry the pre-selected source.
+            val initialVideoUrl = data?.optString("initialVideoUrl", "")?.takeIf { it.isNotEmpty() }
+            if (isSaturnEmbed(initialVideoUrl)) {
+                return listOf(
+                    Video.Server(
+                        id = "serverstock",
+                        name = "AnimeSaturn",
+                        src = initialVideoUrl!!
+                    )
+                )
+            }
+
+            emptyList()
         } catch (e: Exception) {
             emptyList()
         }
@@ -596,9 +711,11 @@ object AnimeSaturnProvider : Provider {
         return People(id = id, name = "Person $id") // TODO: Implement people functionality
     }
 
+    /** Server links point at a saturncdn `/embed/<id>` page — see resolveSaturnEmbed. */
     override suspend fun getVideo(server: Video.Server): Video {
+        val source = resolveSaturnEmbed(server.src)
         return Video(
-            source = server.src
+            source = source
         )
     }
 
