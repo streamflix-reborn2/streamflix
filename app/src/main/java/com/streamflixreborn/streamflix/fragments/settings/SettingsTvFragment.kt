@@ -16,7 +16,9 @@ import android.text.style.ForegroundColorSpan
 import android.util.DisplayMetrics
 import android.util.Log
 import android.util.TypedValue
+import android.view.FocusFinder
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.widget.EditText
 import android.widget.ImageView
@@ -30,11 +32,13 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.constraintlayout.widget.Group
 import androidx.leanback.preference.LeanbackPreferenceFragmentCompat
+import androidx.leanback.widget.VerticalGridView
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceGroupAdapter
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.preference.SeekBarPreference
@@ -81,6 +85,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
     private data class SettingsScreenState(
         val rootKey: String?,
         val title: String?,
+        val focusPreferenceKey: String? = null,
     )
 
     private val DEFAULT_DOMAIN_VALUE = "streamingunity.cc"
@@ -185,10 +190,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         super.onCreate(savedInstanceState)
         settingsBackCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
-                if (screenBackStack.isEmpty()) return
-                currentScreenState = screenBackStack.removeLast()
-                settingsBackCallback.isEnabled = screenBackStack.isNotEmpty()
-                renderCurrentScreen()
+                popSettingsScreen()
             }
         }
         requireActivity().onBackPressedDispatcher.addCallback(this, settingsBackCallback)
@@ -196,7 +198,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
 
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
         if (preference is PreferenceScreen && !preference.key.isNullOrBlank()) {
-            screenBackStack.addLast(currentScreenState)
+            screenBackStack.addLast(currentScreenState.copy(focusPreferenceKey = preference.key))
             currentScreenState = SettingsScreenState(
                 rootKey = preference.key,
                 title = preference.title?.toString(),
@@ -219,18 +221,73 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         activity?.title = currentScreenState.title ?: getString(R.string.player_settings_title)
     }
 
+    private fun popSettingsScreen(): Boolean {
+        if (screenBackStack.isEmpty()) return false
+        currentScreenState = screenBackStack.removeLast()
+        settingsBackCallback.isEnabled = screenBackStack.isNotEmpty()
+        renderCurrentScreen()
+        return true
+    }
+
     private fun renderCurrentScreen() {
         setPreferencesFromResource(R.xml.settings_tv, currentScreenState.rootKey)
         if (::backupRestoreManager.isInitialized) {
             displaySettings()
         }
         applyScreenTitle()
-        view?.post { listView?.requestFocus() }
+        val focusPreferenceKey = currentScreenState.focusPreferenceKey
+        view?.post {
+            val grid = listView as? VerticalGridView
+            val focusPosition = focusPreferenceKey?.let { key ->
+                (grid?.adapter as? PreferenceGroupAdapter)?.getPreferenceAdapterPosition(key)
+            } ?: -1
+            if (grid != null && focusPosition >= 0) {
+                grid.setSelectedPosition(focusPosition)
+            }
+            listView?.requestFocus()
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         SettingsListStyler.attach(view, isTv = true)
+        (listView as? VerticalGridView)?.let { grid ->
+            grid.setOnKeyInterceptListener { event ->
+                if (event.action != KeyEvent.ACTION_DOWN ||
+                    event.keyCode != KeyEvent.KEYCODE_DPAD_LEFT ||
+                    screenBackStack.isEmpty()
+                ) {
+                    return@setOnKeyInterceptListener false
+                }
+
+                val focused = grid.findFocus()
+                val itemView = focused?.let(grid::findContainingItemView)
+                val position = itemView?.let(grid::getChildAdapterPosition) ?: -1
+                val preference = if (position >= 0) {
+                    (grid.adapter as? PreferenceGroupAdapter)?.getItem(position)
+                } else {
+                    null
+                }
+                if (preference is SeekBarPreference && preference.isAdjustable) {
+                    if (preference.value > preference.min) {
+                        return@setOnKeyInterceptListener false
+                    }
+                    if (event.repeatCount != 0) {
+                        return@setOnKeyInterceptListener true
+                    }
+                } else if (event.repeatCount != 0) {
+                    return@setOnKeyInterceptListener false
+                }
+
+                if (focused != null &&
+                    FocusFinder.getInstance().findNextFocus(grid, focused, View.FOCUS_LEFT) != null
+                ) {
+                    return@setOnKeyInterceptListener false
+                }
+
+                popSettingsScreen()
+            }
+        }
         view.post { listView?.requestFocus() }
     }
 

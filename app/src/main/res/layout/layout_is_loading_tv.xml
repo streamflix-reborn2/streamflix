@@ -6,6 +6,7 @@
     android:layout_height="match_parent"
     android:background="?attr/app_background_color"
     android:clickable="true"
+    android:descendantFocusability="afterDescendants"
     android:focusable="true"
     android:visibility="visible"
     tools:visibility="gone">

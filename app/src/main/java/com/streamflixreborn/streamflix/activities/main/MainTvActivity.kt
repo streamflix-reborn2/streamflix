@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -22,6 +23,7 @@ import com.streamflixreborn.streamflix.database.AppDatabase
 import com.streamflixreborn.streamflix.databinding.ActivityMainTvBinding
 import com.streamflixreborn.streamflix.databinding.ContentHeaderMenuMainTvBinding
 import com.streamflixreborn.streamflix.fragments.player.PlayerTvFragment
+import com.streamflixreborn.streamflix.fragments.search.SearchTvFragment
 import com.streamflixreborn.streamflix.ui.UpdateAppTvDialog
 import com.streamflixreborn.streamflix.providers.IptvProvider
 import com.streamflixreborn.streamflix.providers.Provider
@@ -93,6 +95,21 @@ class MainTvActivity : FragmentActivity() {
         }
 
         binding.navMain.setupWithNavController(navController)
+        binding.navMain.menuView.forEach { child, item ->
+            if (item.itemId == R.id.search) {
+                child.setOnKeyListener { _, keyCode, event ->
+                    if (event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0 &&
+                        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                        navController.currentDestination?.id == R.id.search
+                    ) {
+                        (getCurrentFragment() as? SearchTvFragment)?.focusSearchInput() == true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
         updateNavigationVisibility()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
