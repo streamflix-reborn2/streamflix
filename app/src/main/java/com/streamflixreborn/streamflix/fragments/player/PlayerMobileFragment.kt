@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -140,6 +141,8 @@ class PlayerMobileFragment : Fragment() {
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
+    private var orientationEventListener: OrientationEventListener? = null
+    private var lastRequestedOrientation: Int? = null
 
     private val bypassWebViewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -233,9 +236,6 @@ class PlayerMobileFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         if (!isSetupDone) {
-            requireActivity().requestedOrientation =
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            
             val window = requireActivity().window
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -247,6 +247,7 @@ class PlayerMobileFragment : Fragment() {
             insetsController.hide(WindowInsetsCompat.Type.systemBars())
             isSetupDone = true
         }
+        orientationEventListener?.enable()
         isIgnoringPip = false
         if (::player.isInitialized) {
             binding.pvPlayer.useController = true
@@ -269,6 +270,23 @@ class PlayerMobileFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        orientationEventListener = object : OrientationEventListener(requireContext()) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN || !isAdded) return
+
+                val requestedOrientation = when (orientation) {
+                    in 45..134 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                    in 135..224 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+                    in 225..314 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+
+                if (lastRequestedOrientation == requestedOrientation) return
+                lastRequestedOrientation = requestedOrientation
+                requireActivity().requestedOrientation = requestedOrientation
+            }
+        }
+        orientationEventListener?.enable()
         initializePlayer(false)
         initializeVideo()
         gestureHelper = PlayerGestureHelper(
@@ -547,6 +565,9 @@ class PlayerMobileFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        orientationEventListener?.disable()
+        orientationEventListener = null
+        lastRequestedOrientation = null
         nextEpisodePrefetchJob?.cancel()
         val window = requireActivity().window
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -588,7 +609,6 @@ class PlayerMobileFragment : Fragment() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-        requireActivity().requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         when (val type = args.videoType) {
             is Video.Type.Episode -> {
                 nextEpisodeOverlayDismissed = false
@@ -1459,6 +1479,7 @@ class PlayerMobileFragment : Fragment() {
 
     override fun onPause() {
         super.onPause()
+        orientationEventListener?.disable()
         stopProgressHandler()
         hideNextEpisodeOverlay()
     }
