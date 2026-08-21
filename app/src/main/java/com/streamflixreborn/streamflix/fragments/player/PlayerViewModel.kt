@@ -11,13 +11,18 @@ import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.OpenSubtitles
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.format
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import com.streamflixreborn.streamflix.utils.SubDL
+import java.util.concurrent.atomic.AtomicReference
 
 class PlayerViewModel(
     videoType: Video.Type,
@@ -32,6 +37,10 @@ class PlayerViewModel(
 
     private val _playPreviousOrNextEpisode = MutableSharedFlow<Video.Type.Episode>()
     val playPreviousOrNextEpisode: SharedFlow<Video.Type.Episode> = _playPreviousOrNextEpisode
+
+    private val activeServerLoad = AtomicReference<Job?>(null)
+    private val activeVideoLoad = AtomicReference<Job?>(null)
+
     init {
         getServers(videoType, id)
         getSubtitles(videoType)
@@ -94,55 +103,89 @@ class PlayerViewModel(
         getSubtitles(episode)
     }
 
-    private fun getServers(videoType: Video.Type, id: String) = viewModelScope.launch(Dispatchers.IO) {
-        Log.d("PlayerViewModel", "Inizio ricerca server per ID: $id")
+    private fun getServers(videoType: Video.Type, id: String): Job {
+        activeVideoLoad.getAndSet(null)?.cancel()
+
+        val job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            Log.d("PlayerViewModel", "Inizio ricerca server per ID: $id")
+            _state.emit(State.LoadingServers)
+            try {
+                val servers = UserPreferences.currentProvider!!.getServers(id, videoType)
+                ensureActive()
+                if (servers.isEmpty()) {
+                    Log.w("PlayerViewModel", "No streaming servers found for this title.")
+                    _state.emit(State.NoServers)
+                    return@launch
+                }
+
+                // LOG POTENZIATO: Mostra tutti i server disponibili per il player
+                Log.i("StreamFlixES", "[SERVERS LIST] -> Provider: ${UserPreferences.currentProvider!!.name}")
+                Log.i("StreamFlixES", "[SERVERS LIST] -> Found ${servers.size} servers: ${servers.joinToString { it.name }}")
+
+                Log.d("PlayerViewModel", "Ricerca server completata: ${servers.size} server trovati")
+                _state.emit(State.SuccessLoadingServers(servers))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Errore ricerca server: ", e)
+                _state.emit(
+                    State.FailedLoadingServers(
+                        Exception("Unable to load streaming servers. Please try again later.", e)
+                    )
+                )
+            }
+        }
+
+        activeServerLoad.getAndSet(job)?.cancel()
         lastVideoType = videoType
         lastId = id
-        _state.emit(State.LoadingServers)
-        try {
-            val servers = UserPreferences.currentProvider!!.getServers(id, videoType)
-            if (servers.isEmpty()) throw Exception("No servers found")
-            
-            // LOG POTENZIATO: Mostra tutti i server disponibili per il player
-            Log.i("StreamFlixES", "[SERVERS LIST] -> Provider: ${UserPreferences.currentProvider!!.name}")
-            Log.i("StreamFlixES", "[SERVERS LIST] -> Found ${servers.size} servers: ${servers.joinToString { it.name }}")
-
-            Log.d("PlayerViewModel", "Ricerca server completata: ${servers.size} server trovati")
-            _state.emit(State.SuccessLoadingServers(servers))
-        } catch (e: Exception) {
-            Log.e("PlayerViewModel", "Errore ricerca server: ", e)
-            _state.emit(State.FailedLoadingServers(e))
+        job.invokeOnCompletion {
+            activeServerLoad.compareAndSet(job, null)
         }
+        job.start()
+        return job
     }
 
-    fun getVideo(server: Video.Server) = viewModelScope.launch(Dispatchers.IO) {
-        Log.d("PlayerViewModel", "Inizio estrazione video dal server: ${server.name}")
-        _state.emit(State.LoadingVideo(server))
-        try {
-            val video = UserPreferences.currentProvider!!.getVideo(server)
-            if (video.source.isEmpty()) throw Exception("No source found")
+    fun getVideo(server: Video.Server): Job {
+        val job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            Log.d("PlayerViewModel", "Inizio estrazione video dal server: ${server.name}")
+            _state.emit(State.LoadingVideo(server))
+            try {
+                val video = UserPreferences.currentProvider!!.getVideo(server)
+                ensureActive()
+                if (video.source.isBlank()) throw Exception("No playable source returned by ${server.name}.")
 
-            // LOGICA SOTTOTITOLI GLOBALE: 
-            // Se il provider non ha già impostato un default (es. i "forced" in spagnolo),
-            // allora proviamo ad attivare l'ultimo sottotitolo usato dall'utente.
-            // MA: se siamo su un provider spagnolo e non ci sono forced, non dobbiamo attivare nulla.
-            val currentProviderLang = UserPreferences.currentProvider?.language ?: ""
-            val hasDefaultAlready = video.subtitles.any { it.default }
+                // LOGICA SOTTOTITOLI GLOBALE:
+                // Se il provider non ha già impostato un default (es. i "forced" in spagnolo),
+                // allora proviamo ad attivare l'ultimo sottotitolo usato dall'utente.
+                // MA: se siamo su un provider spagnolo e non ci sono forced, non dobbiamo attivare nulla.
+                val currentProviderLang = UserPreferences.currentProvider?.language ?: ""
+                val hasDefaultAlready = video.subtitles.any { it.default }
 
-            if (!hasDefaultAlready && currentProviderLang != "es") {
-                if (!(video.useServerSubtitleSetting && UserPreferences.serverAutoSubtitlesDisabled)) {
-                    video.subtitles
-                        .firstOrNull { it.label.startsWith(UserPreferences.subtitleName ?: "") }
-                        ?.default = true
-		}
+                if (!hasDefaultAlready && currentProviderLang != "es") {
+                    if (!(video.useServerSubtitleSetting && UserPreferences.serverAutoSubtitlesDisabled)) {
+                        video.subtitles
+                            .firstOrNull { it.label.startsWith(UserPreferences.subtitleName ?: "") }
+                            ?.default = true
+                    }
+                }
+
+                Log.d("PlayerViewModel", "Estrazione video completata con successo")
+                _state.emit(State.SuccessLoadingVideo(video, server))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Errore estrazione video: ", e)
+                _state.emit(State.FailedLoadingVideo(e, server))
             }
-
-            Log.d("PlayerViewModel", "Estrazione video completata con successo")
-            _state.emit(State.SuccessLoadingVideo(video, server))
-        } catch (e: Exception) {
-            Log.e("PlayerViewModel", "Errore estrazione video: ", e)
-            _state.emit(State.FailedLoadingVideo(e, server))
         }
+
+        activeVideoLoad.getAndSet(job)?.cancel()
+        job.invokeOnCompletion {
+            activeVideoLoad.compareAndSet(job, null)
+        }
+        job.start()
+        return job
     }
 
     fun getSubtitles(videoType: Video.Type) = viewModelScope.launch(Dispatchers.IO) {
@@ -230,6 +273,7 @@ class PlayerViewModel(
 
     sealed class State {
         data object LoadingServers : State()
+        data object NoServers : State()
         data class SuccessLoadingServers(val servers: List<Video.Server>) : State()
         data class FailedLoadingServers(val error: Exception) : State()
         data class LoadingVideo(val server: Video.Server) : State()
