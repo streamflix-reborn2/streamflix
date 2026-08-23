@@ -50,7 +50,7 @@
     <string name="search_input_hint_iptv">Buscar canales</string>
     <string name="global_search">Búsqueda global</string>
     <string name="search_empty_query">Por favor, introduce un término de búsqueda</string>
-    <string name="searching">Buscando...</string>
+    <string name="searching">Buscando…</string>
     <string name="search_error">Error</string>
     <string name="result">Resultado</string>
     <string name="results">Resultados</string>
@@ -122,6 +122,7 @@
     <string name="player_not_available_it_message">No disponible en servidores italianos, búscalo en TMDB en otros idiomas</string>
     <string name="player_not_available_lang_message">No disponible en %s, búscalo en TMDB en otros idiomas</string>
     <string name="player_retry_later_message">Vídeo no disponible por el momento. Por favor, inténtalo de nuevo más tarde</string>
+    <string name="player_resolving_server">Resolviendo servidor…</string>
     <string name="player_aspect_ratio_fit">Ajustar a la pantalla</string>
     <string name="player_aspect_ratio_fill">Estirar</string>
     <string name="player_aspect_ratio_zoom">Zoom</string>

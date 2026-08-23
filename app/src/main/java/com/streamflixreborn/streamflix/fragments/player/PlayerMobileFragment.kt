@@ -358,6 +358,7 @@ class PlayerMobileFragment : Fragment() {
                     }
 
                     is PlayerViewModel.State.LoadingVideo -> {
+                        binding.tvResolvingServer.visibility = View.VISIBLE
                         player.setMediaItem(
                             MediaItem.Builder()
                                 .setUri("".toUri())
@@ -371,6 +372,7 @@ class PlayerMobileFragment : Fragment() {
                     }
 
                     is PlayerViewModel.State.SuccessLoadingVideo -> {
+                        binding.tvResolvingServer.visibility = View.GONE
                         PlayerSettingsView.Settings.ExtraBuffering.init(state.video.extraBuffering)
                         PlayerSettingsView.Settings.SoftwareDecoder.init(false)
                         displayVideo(state.video, state.server)
@@ -381,6 +383,7 @@ class PlayerMobileFragment : Fragment() {
                         if (nextServer != null) {
                             viewModel.getVideo(nextServer)
                         } else {
+                            binding.tvResolvingServer.visibility = View.GONE
                             val providerName = UserPreferences.currentProvider?.name ?: ""
                             val isTmdb = providerName.contains("TMDb", ignoreCase = true)
                             val isAD = providerName.contains("AfterDark", ignoreCase = true)

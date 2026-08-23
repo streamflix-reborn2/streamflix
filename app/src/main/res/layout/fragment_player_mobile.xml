@@ -24,6 +24,25 @@
         app:show_timeout="2000"
         app:surface_type="texture_view" />
 
+    <TextView
+        android:id="@+id/tv_resolving_server"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#80000000"
+        android:paddingStart="14dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="8dp"
+        android:text="@string/player_resolving_server"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/pv_player"
+        app:layout_constraintEnd_toEndOf="@id/pv_player"
+        app:layout_constraintStart_toStartOf="@id/pv_player"
+        app:layout_constraintTop_toTopOf="@id/pv_player"
+        tools:visibility="visible" />
+
     <com.streamflixreborn.streamflix.fragments.player.settings.PlayerSettingsMobileView
         android:id="@+id/settings"
         android:layout_width="300dp"
