@@ -1350,6 +1350,7 @@ object TMDb3 {
         }
 
         data class Detail(
+            @SerializedName("adult") val adult: Boolean = false,
             @SerializedName("id") val id: Int,
             val name: String,
             @SerializedName("poster_path") val posterPath: String?,
