@@ -11,6 +11,7 @@ import com.streamflixreborn.streamflix.models.Episode
 import com.streamflixreborn.streamflix.models.Movie
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.providers.AnimeOnlineNinjaProvider
+import com.streamflixreborn.streamflix.providers.MkissaProvider
 import com.streamflixreborn.streamflix.providers.Provider
 import com.streamflixreborn.streamflix.ui.UserDataNotifier
 import com.streamflixreborn.streamflix.utils.HomeCacheStore
@@ -173,10 +174,10 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
                         }
                     } as List<AppAdapter.Item>
             }.flowOn(Dispatchers.IO),
-            
+
             // FAVORITE MOVIES
             database.movieDao().getFavorites().flowOn(Dispatchers.IO),
-            
+
             // FAVORITE TV SHOWS
             database.tvShowDao().getFavorites().flowOn(Dispatchers.IO),
 
@@ -409,10 +410,11 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
         currentProvider = provider
         val appContext = StreamFlixApp.instance.applicationContext
         val cachedCategories = HomeCacheStore.read(appContext, provider)
-        val deferCachedHomeForClearance =
-                provider === AnimeOnlineNinjaProvider &&
-                        !AnimeOnlineNinjaProvider.hasCurrentClearanceCookie()
-        if (!cachedCategories.isNullOrEmpty() && !deferCachedHomeForClearance) {
+        // MKissa home entries can contain IDs that are no longer valid by the
+        // time its detail endpoint is ready. Do not expose stale cached cards
+        // while the fresh home request is in flight.
+        val deferCachedHome = provider === MkissaProvider || provider === AnimeOnlineNinjaProvider && !AnimeOnlineNinjaProvider.hasCurrentClearanceCookie()
+        if (!cachedCategories.isNullOrEmpty() && !deferCachedHome) {
             _state.emit(State.SuccessLoading(cachedCategories))
         } else {
             _state.emit(State.Loading)
@@ -428,7 +430,7 @@ class HomeViewModel(database: AppDatabase) : ViewModel() {
             Log.e("HomeViewModel", "getHome: ", e)
             if (cachedCategories.isNullOrEmpty()) {
                 _state.emit(State.FailedLoading(e))
-            } else if (deferCachedHomeForClearance) {
+            } else if (deferCachedHome) {
                 _state.emit(State.SuccessLoading(cachedCategories))
             }
         }
