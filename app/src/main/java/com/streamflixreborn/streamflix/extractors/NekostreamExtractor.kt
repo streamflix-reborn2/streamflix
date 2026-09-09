@@ -52,20 +52,31 @@ class NekostreamExtractor : Extractor() {
             ?.groupValues
             ?.getOrNull(1)
 
-        val sourcesUrl = if (pageBody.contains("getSourcesNew")) {
-            "$origin/stream/getSourcesNew?id=$fileId" + (streamType?.let { "&type=$it" } ?: "")
-        } else {
-            "$origin/stream/getSources?id=$fileId"
+        fun sourcesUrl(endpoint: String) = buildString {
+            append("$origin/stream/$endpoint?id=$fileId")
+            streamType?.let { append("&type=${Uri.encode(it)}") }
+            pageUri.getQueryParameter("s")?.let { append("&s=${Uri.encode(it)}") }
         }
 
-        val sourcesBody = getText(
-            url = sourcesUrl,
-            referer = streamPageUrl,
-            origin = origin,
-            accept = "application/json, text/javascript, */*; q=0.01",
-            requestedWith = true,
-        )
-        val sources = Gson().fromJson(sourcesBody, SourcesResponse::class.java)
+        // MegaPlay's current player uses getSourcesNew, while older records
+        // may still expose only the legacy response format.
+        val sources = listOf("getSourcesNew", "getSources").asSequence()
+            .mapNotNull { endpoint ->
+                runCatching {
+                    Gson().fromJson(
+                        getText(
+                            url = sourcesUrl(endpoint),
+                            referer = streamPageUrl,
+                            origin = origin,
+                            accept = "application/json, text/javascript, */*; q=0.01",
+                            requestedWith = true,
+                        ),
+                        SourcesResponse::class.java,
+                    )
+                }.getOrNull()
+            }
+            .firstOrNull { !it.sources?.file.isNullOrBlank() }
+            ?: throw Exception("Nekostream source not found")
         val source = sources.sources?.file ?: throw Exception("Nekostream source not found")
 
         return Video(
