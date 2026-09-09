@@ -3,6 +3,7 @@ package com.streamflixreborn.streamflix.providers
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.content.Context
+import android.webkit.CookieManager
 import android.util.Base64
 import android.util.Log
 import com.tanasi.retrofit_jsoup.converter.JsoupConverterFactory
@@ -22,10 +23,13 @@ import com.streamflixreborn.streamflix.utils.DnsResolver
 import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.TmdbUtils
 import com.streamflixreborn.streamflix.utils.UserPreferences
+import com.streamflixreborn.streamflix.utils.WebViewResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
@@ -37,6 +41,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -69,18 +74,26 @@ object SerienStreamProvider : Provider {
     private var service: SerienStreamService? = null
     @Volatile
     private var serviceBaseUrl: String? = null
+    @Volatile
+    private var webViewResolver: WebViewResolver? = null
+    private val redirectResolverMutex = Mutex()
 
 
     private var tvShowDao: TvShowDao? = null
     private lateinit var appContext: Context
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
+        if (webViewResolver == null) {
+            webViewResolver = WebViewResolver(appContext)
+        }
         if (tvShowDao == null) {
             tvShowDao = SerienStreamDatabase.getInstance(context).tvShowDao()
-
-            this.appContext = context.applicationContext
-
         }
+    }
+
+    private fun getWebViewResolver(): WebViewResolver {
+        return webViewResolver ?: WebViewResolver(appContext).also { webViewResolver = it }
     }
 
 
@@ -409,6 +422,7 @@ object SerienStreamProvider : Provider {
         val showName = linkWithSplitData[0]
         val seasonNumber = linkWithSplitData[1]
         val episodeNumber = linkWithSplitData[2]
+        val episodeUrl = currentBaseUrl() + "serie/$showName/$seasonNumber/$episodeNumber"
         val document = getService().getTvShowEpisodeServers(showName, seasonNumber, episodeNumber)
 
         val elements = document.select("button.link-box")
@@ -422,14 +436,18 @@ object SerienStreamProvider : Provider {
             try {
                 val redirectUrl = currentBaseUrl() + href.removePrefix("/")
 
-                val serverAfterRedirect = try {
-                    getService().getRedirectLink(redirectUrl)
-                } catch (exception: Exception) {
-                    val unsafeOkHttpClient = SerienStreamService.buildUnsafe(currentBaseUrl())
-                    unsafeOkHttpClient.getRedirectLink(redirectUrl)
+                val videoUrlString = runCatching {
+                    val serverAfterRedirect = try {
+                        getService().getRedirectLink(redirectUrl)
+                    } catch (exception: Exception) {
+                        val unsafeOkHttpClient = SerienStreamService.buildUnsafe(currentBaseUrl())
+                        unsafeOkHttpClient.getRedirectLink(redirectUrl)
+                    }
+                    val videoUrl = (serverAfterRedirect.raw() as okhttp3.Response).request.url
+                    resolveUnfinishedRedirect(videoUrl.toString(), episodeUrl)
+                }.getOrElse {
+                    resolveUnfinishedRedirect(redirectUrl, episodeUrl)
                 }
-                val videoUrl = (serverAfterRedirect.raw() as okhttp3.Response).request.url
-                val videoUrlString = videoUrl.toString()
                 
                 servers.add(
                     Video.Server(
@@ -443,6 +461,180 @@ object SerienStreamProvider : Provider {
         }
         return servers
 
+    }
+
+    /**
+     * A normal /r redirect ends at the video host. When SerienStream is
+     * challenged, OkHttp stops at SerienStream instead; let the WebView
+     * execute the Turnstile flow and return the resulting player URL.
+     */
+    private suspend fun resolveUnfinishedRedirect(url: String, episodeUrl: String): String {
+        if (!isSerienStreamUrl(url)) return url
+
+        return redirectResolverMutex.withLock {
+            val existingCookies = CookieManager.getInstance()
+                .getCookie(currentBaseUrl())
+                .orEmpty()
+                .trim()
+            if (existingCookies.isNotBlank()) {
+                val existingSessionRedirect = runCatching {
+                    getService().getRedirectLinkWithCookies(url, existingCookies)
+                }.getOrNull()
+                val existingUrl = existingSessionRedirect
+                    ?.let { (it.raw() as okhttp3.Response).request.url.toString() }
+                if (!existingUrl.isNullOrBlank() && !isSerienStreamUrl(existingUrl)) {
+                    return@withLock existingUrl
+                }
+            }
+
+            val result = getWebViewResolver().getResult(
+                url = episodeUrl,
+                headers = mapOf(
+                    "User-Agent" to NetworkClient.USER_AGENT,
+                    "Referer" to currentBaseUrl(),
+                ),
+                completion = { currentUrl, html, _ ->
+                    isTurnstileReady(html) ||
+                            (!isCloudflareChallenge(html) &&
+                                    (hasLoadedDocument(html) ||
+                                            html.contains("link-box", ignoreCase = true) ||
+                                            extractPlayableUrl(html, currentUrl) != null ||
+                                            (!isSerienStreamUrl(currentUrl) && currentUrl != url)))
+                },
+                pageReadyScriptProvider = { _, _, _ ->
+                    """
+                    (function() {
+                        var token = document.querySelector('#player-prepare-token');
+                        var form = document.querySelector('#player-prepare-form');
+                        var cfToken = form
+                            ? form.querySelector('[name="cf-turnstile-response"]')
+                            : null;
+                        if (token && token.value && cfToken && cfToken.value && form &&
+                            !form.dataset.streamflixTurnstileReady) {
+                            var csrf = form.querySelector('[name="_token"]');
+                            form.setAttribute('data-streamflix-csrf', csrf ? csrf.value : '');
+                            form.setAttribute('data-streamflix-t', token.value);
+                            form.setAttribute('data-streamflix-cf', cfToken.value);
+                            form.dataset.streamflixTurnstileReady = '1';
+                        }
+                        return token ? (token.value || '') : '';
+                    })();
+                    """.trimIndent()
+                },
+            )
+
+            val webViewRedirect = result.finalUrl
+                ?.takeUnless(::isSerienStreamUrl)
+                ?.takeUnless { it.contains("cloudflare", ignoreCase = true) }
+            if (!webViewRedirect.isNullOrBlank()) return@withLock webViewRedirect
+
+            if (isCloudflareChallenge(result.html) && !isTurnstileReady(result.html)) {
+                return@withLock url
+            }
+
+            val gateFields = extractTurnstileFields(result.html)
+            if (gateFields != null) {
+                Log.d(
+                    "SerienStreamProvider",
+                    "Submitting Turnstile gate; tokenLength=${gateFields.turnstileToken.length}, " +
+                            "responseLength=${gateFields.cloudflareResponse.length}, cookieLength=${result.cookies.length}"
+                )
+                val gateResponse = runCatching {
+                    getService().submitRedirectGate(
+                        csrfToken = gateFields.csrfToken,
+                        turnstileToken = gateFields.turnstileToken,
+                        cloudflareResponse = gateFields.cloudflareResponse,
+                        cookie = result.cookies,
+                    )
+                }.getOrElse {
+                    SerienStreamService.buildUnsafe(currentBaseUrl()).submitRedirectGate(
+                        csrfToken = gateFields.csrfToken,
+                        turnstileToken = gateFields.turnstileToken,
+                        cloudflareResponse = gateFields.cloudflareResponse,
+                        cookie = result.cookies,
+                    )
+                }
+                val gateUrl = (gateResponse.raw() as okhttp3.Response).request.url.toString()
+                Log.d("SerienStreamProvider", "Turnstile gate final URL: $gateUrl")
+                if (!isSerienStreamUrl(gateUrl)) return@withLock gateUrl
+            }
+
+            val cookieHeader = result.cookies.trim()
+            Log.d(
+                "SerienStreamProvider",
+                "Retrying redirect after episode WebView; clearance=${cookieHeader.contains("cf_clearance")}, cookieLength=${cookieHeader.length}"
+            )
+            val retried = runCatching {
+                if (cookieHeader.isNotBlank()) {
+                    getService().getRedirectLinkWithCookies(url, cookieHeader)
+                } else {
+                    getService().getRedirectLink(url)
+                }
+            }.getOrElse {
+                if (cookieHeader.isNotBlank()) {
+                    SerienStreamService.buildUnsafe(currentBaseUrl())
+                        .getRedirectLinkWithCookies(url, cookieHeader)
+                } else {
+                    SerienStreamService.buildUnsafe(currentBaseUrl()).getRedirectLink(url)
+                }
+            }
+            val retriedUrl = (retried.raw() as okhttp3.Response).request.url.toString()
+            retriedUrl.takeUnless(::isSerienStreamUrl) ?: url
+        }
+    }
+
+    private data class TurnstileFields(
+        val csrfToken: String,
+        val turnstileToken: String,
+        val cloudflareResponse: String,
+    )
+
+    private fun extractTurnstileFields(html: String): TurnstileFields? {
+        val form = org.jsoup.Jsoup.parse(html).selectFirst("#player-prepare-form") ?: return null
+        val csrfToken = form.attr("data-streamflix-csrf").trim()
+        val turnstileToken = form.attr("data-streamflix-t").trim()
+        val cloudflareResponse = form.attr("data-streamflix-cf").trim()
+        return TurnstileFields(csrfToken, turnstileToken, cloudflareResponse)
+            .takeIf {
+                it.csrfToken.isNotBlank() &&
+                        it.turnstileToken.isNotBlank() &&
+                        it.cloudflareResponse.isNotBlank()
+            }
+    }
+
+    private fun extractPlayableUrl(html: String, pageUrl: String?): String? {
+        val document = org.jsoup.Jsoup.parse(html, pageUrl.orEmpty())
+        return document.select("iframe[src], video[src], video source[src]")
+            .asSequence()
+            .mapNotNull { it.absUrl("src").ifBlank { it.attr("src").trim() } }
+            .firstOrNull { candidate ->
+                candidate.startsWith("http", ignoreCase = true) && !isSerienStreamUrl(candidate)
+            }
+    }
+
+    private fun isCloudflareChallenge(html: String): Boolean {
+        return html.contains("challenge-platform", ignoreCase = true) ||
+                html.contains("challenges.cloudflare.com", ignoreCase = true) ||
+                html.contains("cf-turnstile", ignoreCase = true) ||
+                html.contains("cf-browser-verification", ignoreCase = true) ||
+                html.contains("challenge-running", ignoreCase = true) ||
+                html.contains("cf-chl-", ignoreCase = true) ||
+                html.contains("Just a moment", ignoreCase = true)
+    }
+
+    private fun isTurnstileReady(html: String): Boolean {
+        return html.contains("data-streamflix-turnstile-ready", ignoreCase = true)
+    }
+
+    private fun hasLoadedDocument(html: String): Boolean {
+        val body = org.jsoup.Jsoup.parse(html).body()
+        return body.children().isNotEmpty() || body.text().isNotBlank()
+    }
+
+    private fun isSerienStreamUrl(url: String): Boolean {
+        return runCatching {
+            Uri.parse(url).host.equals(currentDomain(), ignoreCase = true)
+        }.getOrDefault(false)
     }
 
     override suspend fun getVideo(server: Video.Server): Video {
@@ -590,6 +782,33 @@ object SerienStreamProvider : Provider {
             "Connection: keep-alive"
         )
         suspend fun getRedirectLink(@Url url: String): Response<ResponseBody>
+
+        @GET
+        @Headers(
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language: de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Connection: keep-alive"
+        )
+        suspend fun getRedirectLinkWithCookies(
+            @Url url: String,
+            @Header("Cookie") cookie: String,
+        ): Response<ResponseBody>
+
+        @FormUrlEncoded
+        @POST("r")
+        @Headers(
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language: de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Connection: keep-alive"
+        )
+        suspend fun submitRedirectGate(
+            @Field("_token") csrfToken: String,
+            @Field("t") turnstileToken: String,
+            @Field("cf-turnstile-response") cloudflareResponse: String,
+            @Header("Cookie") cookie: String,
+        ): Response<ResponseBody>
     }
 
     fun Element.extractPoster(): String {
