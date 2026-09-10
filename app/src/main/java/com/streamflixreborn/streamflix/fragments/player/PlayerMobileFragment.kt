@@ -93,6 +93,7 @@ import com.streamflixreborn.streamflix.utils.DnsResolver
 import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.PlayerGestureHelper
+import com.streamflixreborn.streamflix.utils.ContentRatingOverlayPolicy
 import com.streamflixreborn.streamflix.utils.UserDataCache.toEpisode
 import com.streamflixreborn.streamflix.utils.UserDataCache.toMovie
 import kotlinx.coroutines.Dispatchers
@@ -140,6 +141,7 @@ class PlayerMobileFragment : Fragment() {
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
+    private var contentRatingOverlayJob: Job? = null
 
     private val bypassWebViewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -271,6 +273,7 @@ class PlayerMobileFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         initializePlayer(false)
         initializeVideo()
+        observeContentRating()
         gestureHelper = PlayerGestureHelper(
             requireContext(), 
             binding.pvPlayer, 
@@ -548,6 +551,7 @@ class PlayerMobileFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         nextEpisodePrefetchJob?.cancel()
+        contentRatingOverlayJob?.cancel()
         val window = requireActivity().window
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
@@ -566,6 +570,32 @@ class PlayerMobileFragment : Fragment() {
         } catch (ignored: Exception) {}
         _binding = null
         isSetupDone = false
+    }
+
+    private fun observeContentRating() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.contentRating.flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+                .collect { state ->
+                    contentRatingOverlayJob?.cancel()
+                    binding.tvContentRatingBadge.animate().cancel()
+                    when (state) {
+                        is PlayerViewModel.RatingState.Available -> {
+                            val badge = binding.tvContentRatingBadge
+                            badge.text = state.rating.certification
+                            badge.alpha = 0f
+                            badge.visibility = View.VISIBLE
+                            badge.animate().alpha(1f).setDuration(180L).start()
+                            contentRatingOverlayJob = viewLifecycleOwner.lifecycleScope.launch {
+                                delay(ContentRatingOverlayPolicy.DISPLAY_DURATION_MS - ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS)
+                                badge.animate().alpha(0f).setDuration(ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS).withEndAction {
+                                    if (_binding != null) badge.visibility = View.GONE
+                                }.start()
+                            }
+                        }
+                        else -> binding.tvContentRatingBadge.visibility = View.GONE
+                    }
+                }
+        }
     }
 
     fun onBackPressed(): Boolean = when {

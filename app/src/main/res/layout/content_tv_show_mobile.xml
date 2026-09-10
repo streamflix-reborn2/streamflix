@@ -119,10 +119,27 @@
         android:layout_marginEnd="10dp"
         android:textColor="#FFFFFF"
         app:layout_constraintBottom_toTopOf="@id/barrier1"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/tv_tv_show_content_rating"
         app:layout_constraintStart_toEndOf="@id/tv_tv_show_released"
         app:layout_constraintTop_toBottomOf="@id/tv_tv_show_title"
         tools:text="# h # min"
+        tools:visibility="visible" />
+
+    <TextView
+        android:id="@+id/tv_tv_show_content_rating"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="10dp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/barrier1"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@id/tv_tv_show_runtime"
+        app:layout_constraintTop_toBottomOf="@id/tv_tv_show_title"
+        tools:text="TV-14"
         tools:visibility="visible" />
 
     <androidx.constraintlayout.widget.Barrier
@@ -130,7 +147,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="tv_tv_show_rating,tv_tv_show_quality,tv_tv_show_released,tv_tv_show_runtime" />
+        app:constraint_referenced_ids="tv_tv_show_rating,tv_tv_show_quality,tv_tv_show_released,tv_tv_show_runtime,tv_tv_show_content_rating" />
 
     <TextView
         android:id="@+id/tv_tv_show_genres"
