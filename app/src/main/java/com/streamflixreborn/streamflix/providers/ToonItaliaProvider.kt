@@ -37,16 +37,17 @@ import java.util.concurrent.TimeUnit
  *   `/category/film-animazione/` return `article` lists (100 per page,
  *   verified on `/category/anime/`); paginated via `/page/{n}/`.
  * - Detail posts: `h1.entry-title`, `meta[property=og:image]`, `.entry-content`.
- *   Anime (e.g. `/one-piece/`): `uqload.vc/e/*.html` (PLAYER1, ~1336 links) +
- *   `chuckle-tube.com/e/*` (PLAYER2). Serie TV (e.g. `/supernatural/`):
- *   `uprot.net/msf/*` (PLAYER1, 328 links). Film (e.g. `/nimona/`):
- *   `Link Streaming: ... VOE (chuckle-tube.com/e/...) ... VIDHIDE (dhtpre.com/file/...)`.
+ *   Anime (e.g. `/one-piece/`): uqload.vc embed links (PLAYER1, ~1336 links) +
+ *   chuckle-tube.com embed links (PLAYER2). Serie TV (e.g. `/supernatural/`):
+ *   uprot.net msf links (PLAYER1, 328 links). Film (e.g. `/nimona/`):
+ *   `Link Streaming` with a VOE-labeled chuckle-tube link and a VIDHIDE
+ *   dhtpre.com file link.
  *
  * Known limitations (not invented, observed):
  * - `chuckle-tube.com` has no matching [Extractor] (see Extractor.kt list),
  *   so those servers are exposed but `getVideo` throws for them; episodes
  *   that also carry a PLAYER1 (uqload/uprot/vidhide) remain playable.
- * - `uprot.net/msf/*` links resolve to Maxstream via CB01-style UPROT API
+ * - uprot.net msf links resolve to Maxstream via CB01-style UPROT API
  *   keys (see CB01Provider.callUprotApi + Keys); without keys the raw URL is
  *   exposed and generic extraction fails, same as CB01 without secrets.
  * - `dhtpre.com` works via VidHideExtractor; `uqload.vc` matches
