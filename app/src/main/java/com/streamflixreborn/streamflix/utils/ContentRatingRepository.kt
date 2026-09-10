@@ -11,14 +11,14 @@ object ContentRatingRepository {
 
     suspend fun movie(
         tmdbId: Int?, title: String, year: Int? = null, language: String? = null,
-    ): ContentRating? = cached("movie:${tmdbId ?: title.lowercase()}:${year ?: ""}:US") {
+    ): ContentRating? = cached("movie:${tmdbId ?: title.lowercase()}:${year ?: ""}:${preferenceKey(language)}") {
         tmdbId?.let { TmdbUtils.getMovieContentRatingById(it, language) }
             ?: TmdbUtils.getMovieContentRating(title, year, language)
     }
 
     suspend fun series(
         tmdbId: Int?, title: String, year: Int? = null, language: String? = null,
-    ): ContentRating? = cached("tv:${tmdbId ?: title.lowercase()}:${year ?: ""}:US") {
+    ): ContentRating? = cached("tv:${tmdbId ?: title.lowercase()}:${year ?: ""}:${preferenceKey(language)}") {
         tmdbId?.let { TmdbUtils.getTvShowContentRatingById(it, language) }
             ?: TmdbUtils.getTvShowContentRating(title, year, language)
     }
@@ -33,14 +33,18 @@ object ContentRatingRepository {
         episodeCertification: String? = null, seasonCertification: String? = null,
         language: String? = null,
     ): ContentRating? {
-        val key = "episode:${seriesTmdbId ?: seriesTitle.lowercase()}:S$seasonNumber:E$episodeNumber:US"
-        return cached(key) {
-            ContentRating.mostSpecific(
-                ContentRating.create(episodeCertification, source = "provider", scope = ContentRating.Scope.EPISODE),
-                ContentRating.create(seasonCertification, source = "provider", scope = ContentRating.Scope.SEASON),
-                series(seriesTmdbId, seriesTitle, language = language),
-            )
-        }
+        ContentRating.create(
+            episodeCertification, source = "provider", scope = ContentRating.Scope.EPISODE,
+        )?.let { return it }
+        ContentRating.create(
+            seasonCertification, source = "provider", scope = ContentRating.Scope.SEASON,
+        )?.let { return it }
+
+        val fallbackKey = "episode:${seriesTmdbId ?: seriesTitle.lowercase()}:" +
+            "S$seasonNumber:E$episodeNumber:${preferenceKey(language)}"
+        // Provider metadata is checked before this cache, so a later exact value can never be
+        // masked by a previously cached series fallback.
+        return cached(fallbackKey) { series(seriesTmdbId, seriesTitle, language = language) }
     }
 
     suspend fun playing(
@@ -60,4 +64,11 @@ object ContentRatingRepository {
         if (value == null) missing += key else cache[key] = value
         return value
     }
+
+    internal fun preferenceKey(language: String?): String = language
+        ?.trim()
+        ?.replace('_', '-')
+        ?.uppercase()
+        ?.takeIf { it.isNotBlank() }
+        ?: "DEFAULT"
 }

@@ -142,6 +142,8 @@ class PlayerMobileFragment : Fragment() {
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
     private var contentRatingOverlayJob: Job? = null
+    private var observedContentRatingMediaKey: String? = null
+    private var displayedContentRatingMediaKey: String? = null
 
     private val bypassWebViewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -576,10 +578,21 @@ class PlayerMobileFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.contentRating.flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
                 .collect { state ->
+                    if (state is PlayerViewModel.RatingState.Available &&
+                        state.mediaKey == displayedContentRatingMediaKey
+                    ) return@collect
+                    if (state is PlayerViewModel.RatingState.Loading &&
+                        state.mediaKey != observedContentRatingMediaKey
+                    ) {
+                        observedContentRatingMediaKey = state.mediaKey
+                        displayedContentRatingMediaKey = null
+                    }
                     contentRatingOverlayJob?.cancel()
                     binding.tvContentRatingBadge.animate().cancel()
                     when (state) {
                         is PlayerViewModel.RatingState.Available -> {
+                            observedContentRatingMediaKey = state.mediaKey
+                            displayedContentRatingMediaKey = state.mediaKey
                             val badge = binding.tvContentRatingBadge
                             badge.text = state.rating.certification
                             badge.alpha = 0f

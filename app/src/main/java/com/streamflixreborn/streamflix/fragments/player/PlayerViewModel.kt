@@ -120,8 +120,8 @@ class PlayerViewModel(
                 idsAreTmdb = provider?.name?.contains("TMDb", ignoreCase = true) == true,
             )
             // The key check also protects against non-cooperative/late metadata requests.
-            if (ratingPolicy.accepts(key)) {
-                _contentRating.emit(if (rating == null) RatingState.Hidden else RatingState.Available(key, rating))
+            ratingPolicy.publishIfCurrent(key) {
+                _contentRating.value = if (rating == null) RatingState.Hidden else RatingState.Available(key, rating)
             }
         }
     }

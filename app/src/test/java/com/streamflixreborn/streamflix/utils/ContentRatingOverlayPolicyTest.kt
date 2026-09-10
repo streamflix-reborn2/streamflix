@@ -4,6 +4,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ContentRatingOverlayPolicyTest {
     @Test fun `overlay duration is five seconds`() {
@@ -20,7 +22,37 @@ class ContentRatingOverlayPolicyTest {
         val policy = ContentRatingOverlayPolicy()
         assertTrue(policy.onMediaChanged("episode:A"))
         assertTrue(policy.onMediaChanged("episode:B"))
-        assertFalse(policy.accepts("episode:A"))
-        assertTrue(policy.accepts("episode:B"))
+        assertFalse(policy.publishIfCurrent("episode:A") { error("stale result published") })
+        var published = false
+        assertTrue(policy.publishIfCurrent("episode:B") { published = true })
+        assertTrue(published)
+    }
+
+    @Test fun `media change cannot interleave with validated publication`() {
+        val policy = ContentRatingOverlayPolicy()
+        policy.onMediaChanged("episode:A")
+        val publicationStarted = CountDownLatch(1)
+        val allowPublicationToFinish = CountDownLatch(1)
+        val mediaChangeFinished = CountDownLatch(1)
+        val publisher = Thread {
+            policy.publishIfCurrent("episode:A") {
+                publicationStarted.countDown()
+                allowPublicationToFinish.await(1, TimeUnit.SECONDS)
+            }
+        }
+        val changer = Thread {
+            publicationStarted.await(1, TimeUnit.SECONDS)
+            policy.onMediaChanged("episode:B")
+            mediaChangeFinished.countDown()
+        }
+        publisher.start()
+        changer.start()
+        assertTrue(publicationStarted.await(1, TimeUnit.SECONDS))
+        assertFalse(mediaChangeFinished.await(50, TimeUnit.MILLISECONDS))
+        allowPublicationToFinish.countDown()
+        publisher.join()
+        changer.join()
+        assertTrue(mediaChangeFinished.await(1, TimeUnit.SECONDS))
+        assertFalse(policy.publishIfCurrent("episode:A") { error("stale result published") })
     }
 }

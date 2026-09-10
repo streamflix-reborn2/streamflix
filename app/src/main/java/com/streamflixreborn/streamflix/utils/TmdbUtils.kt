@@ -144,7 +144,8 @@ object TmdbUtils {
     suspend fun getMovieContentRating(title: String, year: Int? = null, language: String? = null): ContentRating? {
         if (!UserPreferences.enableTmdb) return null
         val effectiveYear = year ?: extractYear(title)
-        val key = buildLookupCacheKey("movie-rating", title, effectiveYear, language)
+        val key = buildLookupCacheKey("movie-rating", title, effectiveYear, null) +
+            "|${ContentRatingRepository.preferenceKey(language)}"
         movieContentRatingCache[key]?.let { return it }
         if (key in missingContentRatings) return null
         val value = runCatching {
@@ -174,7 +175,8 @@ object TmdbUtils {
     suspend fun getTvShowContentRating(title: String, year: Int? = null, language: String? = null): ContentRating? {
         if (!UserPreferences.enableTmdb) return null
         val effectiveYear = year ?: extractYear(title)
-        val key = buildLookupCacheKey("tv-rating", title, effectiveYear, language)
+        val key = buildLookupCacheKey("tv-rating", title, effectiveYear, null) +
+            "|${ContentRatingRepository.preferenceKey(language)}"
         tvContentRatingCache[key]?.let { return it }
         if (key in missingContentRatings) return null
         val value = runCatching {
@@ -240,7 +242,7 @@ object TmdbUtils {
 
     suspend fun getMovieContentRatingById(id: Int, language: String? = null): ContentRating? {
         if (!UserPreferences.enableTmdb) return null
-        val key = "movie:$id:US"
+        val key = "movie:$id:${ContentRatingRepository.preferenceKey(language)}"
         movieContentRatingCache[key]?.let { return it }
         if (key in missingContentRatings) return null
         val value = runCatching {
@@ -318,7 +320,7 @@ object TmdbUtils {
 
     suspend fun getTvShowContentRatingById(id: Int, language: String? = null): ContentRating? {
         if (!UserPreferences.enableTmdb) return null
-        val key = "tv:$id:US"
+        val key = "tv:$id:${ContentRatingRepository.preferenceKey(language)}"
         tvContentRatingCache[key]?.let { return it }
         if (key in missingContentRatings) return null
         val value = runCatching {
