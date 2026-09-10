@@ -9,6 +9,7 @@ import com.streamflixreborn.streamflix.models.Genre
 import com.streamflixreborn.streamflix.models.Movie
 import com.streamflixreborn.streamflix.models.People
 import com.streamflixreborn.streamflix.models.Season
+import com.streamflixreborn.streamflix.models.Show
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.utils.DnsResolver
@@ -254,7 +255,7 @@ object ToonItaliaProvider : Provider {
             val name = doc.selectFirst("h1.page-title, h1.entry-title")?.text()?.trim()?.ifBlank { null }
                 ?: slug.replace('-', ' ')
                     .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-            Genre(id = slug, name = name, shows = parseArticles(doc))
+            Genre(id = slug, name = name, shows = parseArticles(doc).mapNotNull { it as? Show })
         } catch (_: Exception) { Genre(id = id, name = id) }
     }
 
