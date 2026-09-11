@@ -33,6 +33,8 @@ data class Video(
             val overview: String?,
             val tvShow: TvShow,
             val season: Season,
+            /** Exact provider certification only; null must fall back to season/series metadata. */
+            val contentRating: String? = null,
         ) : Type(), Serializable {
             @Parcelize
             data class TvShow(
@@ -48,6 +50,8 @@ data class Video(
             data class Season(
                 val number: Int,
                 val title: String?,
+                /** Reliable season-level provider certification, when one is supplied. */
+                val contentRating: String? = null,
             ) : Parcelable, Serializable
         }
     }

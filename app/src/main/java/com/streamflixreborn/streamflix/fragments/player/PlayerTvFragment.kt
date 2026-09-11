@@ -80,6 +80,7 @@ import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.MediaServer
 import com.streamflixreborn.streamflix.utils.PlayerGestureHelper
+import com.streamflixreborn.streamflix.utils.ContentRatingOverlayPolicy
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.UserDataCache
 import com.streamflixreborn.streamflix.utils.dp
@@ -161,6 +162,9 @@ class PlayerTvFragment : Fragment() {
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
+    private var contentRatingOverlayJob: Job? = null
+    private var observedContentRatingMediaKey: String? = null
+    private var displayedContentRatingMediaKey: String? = null
     private val chooserReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
@@ -259,6 +263,7 @@ class PlayerTvFragment : Fragment() {
 
         initializePlayer(false)
         initializeVideo()
+        observeContentRating()
         binding.pvPlayer.onMediaPreviousClicked = ::handleMediaPrevious
         binding.pvPlayer.onMediaNextClicked = ::handleMediaNext
         gestureHelper = PlayerGestureHelper(
@@ -618,6 +623,7 @@ class PlayerTvFragment : Fragment() {
         override fun onDestroyView() {
             super.onDestroyView()
             nextEpisodePrefetchJob?.cancel()
+            contentRatingOverlayJob?.cancel()
             clearBypassSession(dismissDialog = true)
             releasePlayer()
             try {
@@ -626,6 +632,43 @@ class PlayerTvFragment : Fragment() {
             }
             _binding = null
             isSetupDone = false
+        }
+
+        private fun observeContentRating() {
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewModel.contentRating.flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+                    .collect { state ->
+                        if (state is PlayerViewModel.RatingState.Available &&
+                            state.mediaKey == displayedContentRatingMediaKey
+                        ) return@collect
+                        if (state is PlayerViewModel.RatingState.Loading &&
+                            state.mediaKey != observedContentRatingMediaKey
+                        ) {
+                            observedContentRatingMediaKey = state.mediaKey
+                            displayedContentRatingMediaKey = null
+                        }
+                        contentRatingOverlayJob?.cancel()
+                        binding.tvContentRatingBadge.animate().cancel()
+                        when (state) {
+                            is PlayerViewModel.RatingState.Available -> {
+                                observedContentRatingMediaKey = state.mediaKey
+                                displayedContentRatingMediaKey = state.mediaKey
+                                val badge = binding.tvContentRatingBadge
+                                badge.text = state.rating.certification
+                                badge.alpha = 0f
+                                badge.visibility = View.VISIBLE
+                                badge.animate().alpha(1f).setDuration(180L).start()
+                                contentRatingOverlayJob = viewLifecycleOwner.lifecycleScope.launch {
+                                    delay(ContentRatingOverlayPolicy.DISPLAY_DURATION_MS - ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS)
+                                    badge.animate().alpha(0f).setDuration(ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS).withEndAction {
+                                        if (_binding != null) badge.visibility = View.GONE
+                                    }.start()
+                                }
+                            }
+                            else -> binding.tvContentRatingBadge.visibility = View.GONE
+                        }
+                    }
+            }
         }
 
     fun onBackPressed(): Boolean = when {

@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamflixreborn.streamflix.models.Video
+import com.streamflixreborn.streamflix.models.ContentRating
+import com.streamflixreborn.streamflix.utils.ContentRatingRepository
+import com.streamflixreborn.streamflix.utils.ContentRatingOverlayPolicy
 import com.streamflixreborn.streamflix.utils.CustomTabHelper
 import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.OpenSubtitles
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import com.streamflixreborn.streamflix.utils.SubDL
 
 class PlayerViewModel(
@@ -32,9 +36,14 @@ class PlayerViewModel(
 
     private val _playPreviousOrNextEpisode = MutableSharedFlow<Video.Type.Episode>()
     val playPreviousOrNextEpisode: SharedFlow<Video.Type.Episode> = _playPreviousOrNextEpisode
+    private val _contentRating = MutableStateFlow<RatingState>(RatingState.Hidden)
+    val contentRating: Flow<RatingState> = _contentRating
+    private var ratingJob: Job? = null
+    private val ratingPolicy = ContentRatingOverlayPolicy()
     init {
         getServers(videoType, id)
         getSubtitles(videoType)
+        resolveContentRating(videoType)
     }
 
     fun playEpisode(direction: Direction) {
@@ -90,8 +99,31 @@ class PlayerViewModel(
         }
     }
     fun playEpisode(episode: Video.Type.Episode) {
+        resolveContentRating(episode)
         getServers(episode, episode.id)
         getSubtitles(episode)
+    }
+
+    fun resolveContentRating(type: Video.Type) {
+        val key = when (type) {
+            is Video.Type.Movie -> "movie:${type.id}"
+            is Video.Type.Episode -> "episode:${type.tvShow.id}:S${type.season.number}:E${type.number}:${type.id}"
+        }
+        if (!ratingPolicy.onMediaChanged(key)) return
+        ratingJob?.cancel()
+        _contentRating.value = RatingState.Loading(key)
+        ratingJob = viewModelScope.launch(Dispatchers.IO) {
+            val provider = UserPreferences.currentProvider
+            val rating = ContentRatingRepository.playing(
+                type,
+                provider?.language,
+                idsAreTmdb = provider?.name?.contains("TMDb", ignoreCase = true) == true,
+            )
+            // The key check also protects against non-cooperative/late metadata requests.
+            ratingPolicy.publishIfCurrent(key) {
+                _contentRating.value = if (rating == null) RatingState.Hidden else RatingState.Available(key, rating)
+            }
+        }
     }
 
     private fun getServers(videoType: Video.Type, id: String) = viewModelScope.launch(Dispatchers.IO) {
@@ -250,6 +282,11 @@ class PlayerViewModel(
         data object DownloadingSubDLSubtitle : SubtitleState()
         data class SuccessDownloadingSubDLSubtitle(val subtitle: SubDL.Subtitle, val uri: Uri) : SubtitleState()
         data class FailedDownloadingSubDLSubtitle(val error: Exception, val subtitle: SubDL.Subtitle) : SubtitleState()
+    }
+    sealed class RatingState {
+        data object Hidden : RatingState()
+        data class Loading(val mediaKey: String) : RatingState()
+        data class Available(val mediaKey: String, val rating: ContentRating) : RatingState()
     }
     private var lastVideoType: Video.Type? = null
     private var lastId: String? = null

@@ -45,6 +45,9 @@ class TvShow(
     override var isFavorite: Boolean = false,
 ) : Show, AppAdapter.Item {
 
+    @Ignore
+    var contentRating: ContentRating? = null
+
     var released = released?.toCalendar()
     var favoritedAtMillis: Long? = null
     var lastPlayedAtMillis: Long? = null
@@ -148,6 +151,7 @@ class TvShow(
         lastPlayedAtMillis = this@TvShow.lastPlayedAtMillis
         lastPlayedEpisodeId = this@TvShow.lastPlayedEpisodeId
         lastPlayedEpisode = this@TvShow.lastPlayedEpisode
+        contentRating = this@TvShow.contentRating
     }
 
     override fun equals(other: Any?): Boolean {

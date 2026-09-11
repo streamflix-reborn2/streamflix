@@ -24,6 +24,25 @@
         app:show_timeout="2000"
         app:surface_type="texture_view" />
 
+    <TextView
+        android:id="@+id/tv_content_rating_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="18dp"
+        android:background="@drawable/bg_content_rating_badge"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="PG-13"
+        tools:visibility="visible" />
+
     <com.streamflixreborn.streamflix.fragments.player.settings.PlayerSettingsMobileView
         android:id="@+id/settings"
         android:layout_width="300dp"

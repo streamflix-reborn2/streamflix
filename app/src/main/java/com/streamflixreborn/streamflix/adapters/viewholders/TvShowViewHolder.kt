@@ -633,6 +633,11 @@ class TvShowViewHolder(
             isVisible = !text.isNullOrEmpty()
         }
 
+        binding.tvTvShowContentRating.apply {
+            text = tvShow.contentRating?.certification
+            isVisible = !text.isNullOrEmpty()
+        }
+
         binding.tvTvShowRuntime.apply {
             text = tvShow.runtime?.let {
                 val hours = it / 60
@@ -764,6 +769,11 @@ class TvShowViewHolder(
 
         binding.tvTvShowReleased.apply {
             text = tvShow.released?.format("yyyy")
+            isVisible = !text.isNullOrEmpty()
+        }
+
+        binding.tvTvShowContentRating.apply {
+            text = tvShow.contentRating?.certification
             isVisible = !text.isNullOrEmpty()
         }
 
