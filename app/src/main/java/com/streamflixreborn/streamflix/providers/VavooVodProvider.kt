@@ -239,24 +239,75 @@ class VavooVodProvider private constructor(
 
     private fun extractUrls(raw: String): List<String> {
         val urls = linkedSetOf<String>()
+        val targetLanguage = language.lowercase().substringBefore('-')
 
-        fun walk(value: Any?) {
+        fun normalizeLanguage(value: String): String =
+            value.trim()
+                .lowercase()
+                .substringBefore('-')
+                .substringBefore('_')
+
+        fun explicitLanguages(value: JSONObject): Set<String> {
+            val result = linkedSetOf<String>()
+
+            value.optJSONArray("languages")?.let { languages ->
+                for (index in 0 until languages.length()) {
+                    languages.optString(index)
+                        .takeIf { it.isNotBlank() }
+                        ?.let { result += normalizeLanguage(it) }
+                }
+            }
+
+            listOf("language", "lang").forEach { key ->
+                value.optString(key)
+                    .takeIf { it.isNotBlank() }
+                    ?.let { result += normalizeLanguage(it) }
+            }
+
+            return result
+        }
+
+        fun walk(
+            value: Any?,
+            inheritedLanguageAllowed: Boolean = true,
+        ) {
             when (value) {
                 is JSONObject -> {
+                    val languages = explicitLanguages(value)
+
+                    val languageAllowed =
+                        if (languages.isNotEmpty()) {
+                            targetLanguage in languages
+                        } else {
+                            inheritedLanguageAllowed
+                        }
+
+                    if (!languageAllowed) return
+
                     listOf("url", "src", "link", "stream", "file").forEach { key ->
                         value.optString(key)
                             .takeIf { it.startsWith("http", ignoreCase = true) }
                             ?.let(urls::add)
                     }
-                    value.keys().forEach { key -> walk(value.opt(key)) }
+
+                    value.keys().forEach { key ->
+                        walk(value.opt(key), languageAllowed)
+                    }
                 }
 
                 is JSONArray -> {
-                    for (index in 0 until value.length()) walk(value.opt(index))
+                    for (index in 0 until value.length()) {
+                        walk(value.opt(index), inheritedLanguageAllowed)
+                    }
                 }
 
                 is String -> {
-                    if (value.startsWith("http", ignoreCase = true)) urls += value
+                    if (
+                        inheritedLanguageAllowed &&
+                        value.startsWith("http", ignoreCase = true)
+                    ) {
+                        urls += value
+                    }
                 }
             }
         }
@@ -266,7 +317,8 @@ class VavooVodProvider private constructor(
 
         return urls.filterNot { url ->
             val lower = url.lowercase()
-            lower.contains("image.tmdb.org") || lower.contains("themoviedb.org")
+            lower.contains("image.tmdb.org") ||
+                lower.contains("themoviedb.org")
         }
     }
 
