@@ -24,6 +24,31 @@
         app:show_timeout="2000"
         app:surface_type="texture_view" />
 
+    <TextView
+        android:id="@+id/btn_skip_intro"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/bg_skip_intro_button"
+        android:clickable="true"
+        android:contentDescription="@string/player_skip_intro"
+        android:drawableStart="@drawable/exo_styled_controls_fastforward"
+        android:drawablePadding="8dp"
+        android:elevation="16dp"
+        android:focusable="true"
+        android:gravity="center"
+        android:minWidth="120dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="@string/player_skip_intro"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/settings"
+        tools:visibility="visible" />
+
     <com.streamflixreborn.streamflix.fragments.player.settings.PlayerSettingsMobileView
         android:id="@+id/settings"
         android:layout_width="300dp"

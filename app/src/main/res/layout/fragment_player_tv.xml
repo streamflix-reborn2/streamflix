@@ -13,6 +13,7 @@
         android:layout_height="0dp"
         android:focusable="true"
         android:focusableInTouchMode="true"
+        android:nextFocusRight="@id/btn_skip_intro"
         app:controller_layout_id="@layout/content_exo_controller_tv"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -25,6 +26,34 @@
         app:show_subtitle_button="true"
         app:show_timeout="2000"
         app:surface_type="surface_view" />
+
+    <TextView
+        android:id="@+id/btn_skip_intro"
+        android:layout_width="wrap_content"
+        android:layout_height="52dp"
+        android:layout_marginEnd="32dp"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/selector_skip_intro_button"
+        android:clickable="true"
+        android:contentDescription="@string/player_skip_intro"
+        android:drawableStart="@drawable/exo_styled_controls_fastforward"
+        android:drawablePadding="8dp"
+        android:elevation="16dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:minWidth="140dp"
+        android:nextFocusLeft="@id/pv_player"
+        android:nextFocusRight="@id/pv_player"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:text="@string/player_skip_intro"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/settings"
+        tools:visibility="visible" />
 
     <com.streamflixreborn.streamflix.fragments.player.settings.PlayerSettingsTvView
         android:id="@+id/settings"

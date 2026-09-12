@@ -140,6 +140,8 @@ class PlayerMobileFragment : Fragment() {
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
+    private var introRange: IntroRange? = null
+    private var skipIntroSeekPending = false
 
     private val bypassWebViewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -255,6 +257,7 @@ class PlayerMobileFragment : Fragment() {
                 player.play()
             }
         }
+        if (::player.isInitialized) startProgressHandler()
         
         try {
             val filter = IntentFilter("ACTION_PLAYER_CHOSEN")
@@ -731,9 +734,13 @@ class PlayerMobileFragment : Fragment() {
             )
         }
 
-        binding.pvPlayer.controller.binding.btnSkipIntro.setOnClickListener {
-            player.seekTo(player.currentPosition + 85000)
+        binding.btnSkipIntro.setOnClickListener {
+            val range = introRange?.takeIf {
+                it.isAvailable(player.currentPosition, player.duration)
+            } ?: return@setOnClickListener
+            skipIntroSeekPending = true
             it.isGone = true
+            player.seekTo(range.seekDestinationMs)
         }
 
         binding.btnNextEpisodeAction.setOnClickListener {
@@ -913,6 +920,7 @@ class PlayerMobileFragment : Fragment() {
     private fun displayVideo(video: Video, server: Video.Server) {
         currentVideo = video
         currentServer = server
+        resetIntroRange()
         updatePlayerHeader()
 
         val extraBuffering = PlayerSettingsView.Settings.ExtraBuffering.isEnabled
@@ -1038,15 +1046,24 @@ class PlayerMobileFragment : Fragment() {
             }
         }
         player.addListener(object : Player.Listener {
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                skipIntroSeekPending = false
+                updateSkipIntroButton()
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 super.onIsPlayingChanged(isPlaying)
                 binding.pvPlayer.keepScreenOn = isPlaying || UserPreferences.keepScreenOnWhenPaused
 
                 if (isPlaying) {
                     recordRecentlyWatchedStart()
+                }
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                     startProgressHandler()
-                } else {
-                    stopProgressHandler()
                 }
 
                 val hasUri = player.currentMediaItem?.localConfiguration?.uri
@@ -1330,15 +1347,15 @@ class PlayerMobileFragment : Fragment() {
         UserDataCache.syncEpisodeToCache(requireContext(), provider, persistedNextEpisode)
     }
     private fun startProgressHandler() {
-        progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        progressRunnable = Runnable {
-            if (player.isPlaying) {
-                val show = player.currentPosition in 3000..120000
-                showSkipIntroButton(show)
+        if (!::progressHandler.isInitialized) {
+            progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            progressRunnable = Runnable {
+                updateSkipIntroButton()
                 updateNextEpisodeOverlay()
+                progressHandler.postDelayed(progressRunnable, 500)
             }
-            progressHandler.postDelayed(progressRunnable, 1000)
         }
+        progressHandler.removeCallbacks(progressRunnable)
         progressHandler.post(progressRunnable)
     }
 
@@ -1402,6 +1419,10 @@ class PlayerMobileFragment : Fragment() {
     }
 
     private fun showNextEpisodeOverlay(nextEpisode: Video.Type.Episode, remainingMs: Long) {
+        // Both standalone overlays share the bottom-end region. The next-episode card takes
+        // precedence while its own display condition is active; Skip Intro is reevaluated by
+        // the progress updater as soon as this card is hidden.
+        showSkipIntroButton(false)
         binding.tvNextEpisodeMeta.text = getString(
             R.string.tv_show_item_season_number_episode_number,
             nextEpisode.season.number,
@@ -1442,13 +1463,30 @@ class PlayerMobileFragment : Fragment() {
         }
     }
 
+    private fun resetIntroRange() {
+        introRange = if (currentVideoTypeForUi() is Video.Type.Episode) IntroRange.DEFAULT else null
+        skipIntroSeekPending = false
+        if (_binding != null) showSkipIntroButton(false)
+    }
+
+    private fun updateSkipIntroButton() {
+        if (_binding == null || !::player.isInitialized) return
+        val range = introRange
+        val position = player.currentPosition
+        if (range == null || position >= range.endMs) skipIntroSeekPending = false
+        showSkipIntroButton(
+            range?.isAvailable(position, player.duration) == true && !skipIntroSeekPending
+        )
+    }
+
     private fun showSkipIntroButton(show: Boolean) {
-        val btnSkipIntro = binding.pvPlayer.controller.binding.btnSkipIntro
-        if (show && btnSkipIntro.isGone) {
+        val btnSkipIntro = binding.btnSkipIntro
+        val shouldShow = show && binding.layoutNextEpisodeOverlay.isGone
+        if (shouldShow && btnSkipIntro.isGone) {
             val fadeIn = android.view.animation.AnimationUtils.loadAnimation(requireContext(), R.anim.fade_in)
             btnSkipIntro.startAnimation(fadeIn)
             btnSkipIntro.isVisible = true
-        } else if (!show && btnSkipIntro.isVisible) {
+        } else if (!shouldShow && btnSkipIntro.isVisible) {
             val fadeOut = android.view.animation.AnimationUtils.loadAnimation(requireContext(), R.anim.fade_out)
             btnSkipIntro.startAnimation(fadeOut)
             btnSkipIntro.isGone = true
