@@ -8,6 +8,7 @@ import com.streamflixreborn.streamflix.models.Movie
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.UserPreferences
+import com.streamflixreborn.streamflix.utils.ContentRatingRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 class MovieViewModel(id: String, private val database: AppDatabase) : ViewModel() {
 
@@ -98,6 +100,14 @@ class MovieViewModel(id: String, private val database: AppDatabase) : ViewModel(
 
         try {
             val movie = UserPreferences.currentProvider!!.getMovie(id)
+            movie.contentRating = ContentRatingRepository.movie(
+                tmdbId = id.toIntOrNull().takeIf {
+                    UserPreferences.currentProvider?.name?.contains("TMDb", ignoreCase = true) == true
+                },
+                title = movie.title,
+                year = movie.released?.get(Calendar.YEAR),
+                language = UserPreferences.currentProvider?.language,
+            )
 
             database.movieDao().getById(id)?.let { movieDb ->
                 movie.merge(movieDb)

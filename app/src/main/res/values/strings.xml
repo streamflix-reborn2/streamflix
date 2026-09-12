@@ -301,6 +301,12 @@
     <string name="settings_provider_no_options_title">No provider options available</string>
     <string name="settings_provider_no_options_summary">This provider does not expose any extra configuration right now.</string>
     <string name="settings_category_provider_url">Main URL</string>
+    <string name="settings_category_provider_domain">Provider domain</string>
+    <string name="settings_provider_domain">Domain</string>
+    <string name="settings_provider_domain_summary">Override the provider domain if the website moves to a new address.</string>
+    <string name="settings_provider_domain_reset">Reset domain</string>
+    <string name="settings_provider_domain_reset_summary">Restore the provider default domain.</string>
+    <string name="settings_provider_domain_reset_done">Provider domain reset to default.</string>
     <string name="settings_category_provider_url_manual">Enter manually</string>
     <string name="settings_category_provider_update_url">Portal URL</string>
     <string name="settings_autoupdate">Refresh main URL on startup</string>
@@ -592,4 +598,31 @@
     <string name="settings_parental_tmdb_disable_blocked">You must unlock parental controls before disabling TMDb.</string>
     <string name="settings_force_extra_buffer_title">Global Extra Buffering</string>
     <string name="settings_force_extra_buffer_summary">Enable extra buffering for all servers by default</string>
+
+    <string name="settings_provider_vavoo_domain">Vavoo domain</string>
+    <string name="settings_provider_vavoo_domain_summary">Override the Vavoo base domain used for catalog and playback</string>
+    <string name="settings_provider_vavoo_domain_reset">Reset Vavoo domain</string>
+
+    <string name="settings_provider_kinoger_domain">KinoGer domain</string>
+    <string name="settings_provider_kinoger_domain_summary">Override the KinoGer base domain</string>
+    <string name="settings_provider_kinoger_domain_reset">Reset KinoGer domain</string>
+
+    <string name="settings_tmdb_streaming_catalogs">TMDb streaming catalogs</string>
+    <string name="settings_tmdb_catalog_modes">Catalog rows</string>
+    <string name="settings_tmdb_catalog_popular">Popular</string>
+    <string name="settings_tmdb_catalog_popular_summary">Popular movies and series from the selected service</string>
+    <string name="settings_tmdb_catalog_top">Top rated</string>
+    <string name="settings_tmdb_catalog_top_summary">Sort by rating</string>
+    <string name="settings_tmdb_catalog_new">Newest</string>
+    <string name="settings_tmdb_catalog_new_summary">Show newest content first</string>
+    <string name="settings_provider_domain_check">Check / update domain</string>
+    <string name="settings_provider_domain_check_summary">Follow redirects and automatically save a new provider domain</string>
+    <string name="settings_provider_domain_check_current">Domain is already current</string>
+    <string name="settings_provider_domain_check_updated">New domain saved: %1$s</string>
+    <string name="settings_provider_domain_check_failed">Domain check failed: %1$s</string>
+
+    <string name="settings_provider_kellerkino_domain">KellerKino domain</string>
+    <string name="settings_provider_kellerkino_domain_summary">Override the KellerKino base domain</string>
+    <string name="settings_provider_kellerkino_domain_reset">Reset KellerKino domain</string>
+
 </resources>

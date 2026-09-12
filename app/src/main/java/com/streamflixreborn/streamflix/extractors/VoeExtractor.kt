@@ -17,7 +17,7 @@ class VoeExtractor : Extractor() {
 
     override val name = "VOE"
     override val mainUrl = "https://voe.sx/"
-    override val aliasUrls = listOf("https://jilliandescribecompany.com", "https://mikaylaarealike.com","https://christopheruntilpoint.com","https://walterprettytheir.com","https://crystaltreatmenteast.com","https://lauradaydo.com","https://lancewhosedifficult.com", "https://dianaavoidthey.com", "https://jefferycontrolmodel.com", "https://charlestoughrace.com", "https://richardquestionbuilding.com","https://jessicayeahcatch.com","https://juliewomanwish.com","https://rebeccapracticeloss.com","https://johnbeyondnation.com")
+    override val aliasUrls = listOf("https://jilliandescribecompany.com", "https://mikaylaarealike.com","https://christopheruntilpoint.com","https://walterprettytheir.com","https://crystaltreatmenteast.com","https://lauradaydo.com","https://lancewhosedifficult.com", "https://dianaavoidthey.com", "https://jefferycontrolmodel.com", "https://charlestoughrace.com", "https://richardquestionbuilding.com","https://jessicayeahcatch.com","https://juliewomanwish.com","https://rebeccapracticeloss.com","https://johnbeyondnation.com","https://chuckle-tube.com","https://johnfullwonder.com")
 
     override suspend fun extract(link: String): Video {
         val service = VoeExtractorService.build(mainUrl, link)

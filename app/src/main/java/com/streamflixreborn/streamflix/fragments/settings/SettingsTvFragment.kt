@@ -67,6 +67,7 @@ import com.streamflixreborn.streamflix.utils.QrUtils
 import com.streamflixreborn.streamflix.utils.ThemeManager
 import com.streamflixreborn.streamflix.utils.UserDataCache
 import com.streamflixreborn.streamflix.utils.UserPreferences
+import com.streamflixreborn.streamflix.utils.DomainRedirectChecker
 import com.streamflixreborn.streamflix.utils.WebSocketBypassTestHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -150,7 +151,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         tvShowDao = db.tvShowDao()
         episodeDao = db.episodeDao()
         seasonDao = db.seasonDao()
-        
+
         val allProvidersToBackup = Provider.providers.keys.toMutableList().apply {
             listOf("it", "en", "es", "de", "fr").forEach { lang ->
                 add(TmdbProvider(lang))
@@ -237,6 +238,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
     private fun displaySettings() {
         updateOverviewLabels()
         updateProviderVisibilityState()
+        bindGenericProviderDomain()
         SupabaseSettingsController.bind(this, lifecycleScope) { key ->
             findPreference(key)
         }
@@ -407,6 +409,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
             }
         }
 
+        bindProviderDomainCheckButtons()
         bindAnimeOnlineNinjaPreferredServer()
 
         findPreference<EditTextPreference>("TMDB_API_KEY")?.apply {
@@ -479,7 +482,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
             val spannableTitle = SpannableString(titleStr)
             spannableTitle.setSpan(ForegroundColorSpan(palette.tvHeaderPrimary), 0, titleStr.length, 0)
             title = spannableTitle
-            
+
             val summaryStr = BuildConfig.VERSION_NAME
             val spannableSummary = SpannableString(summaryStr)
             spannableSummary.setSpan(ForegroundColorSpan(palette.tvHeaderSecondary), 0, summaryStr.length, 0)
@@ -585,7 +588,153 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
                 }
             }
 
-            findPreference<EditTextPreference>("provider_url")?.apply {
+
+        findPreference<EditTextPreference>("provider_kinoger_domain")?.apply {
+            text = UserPreferences.kinogerDomain
+            summary = UserPreferences.kinogerDomain
+
+            setOnPreferenceChangeListener { _, newValue ->
+                UserPreferences.kinogerDomain =
+                    newValue?.toString().orEmpty()
+
+                text = UserPreferences.kinogerDomain
+                summary = UserPreferences.kinogerDomain
+                true
+            }
+        }
+
+        findPreference<Preference>("provider_kinoger_domain_reset")
+            ?.setOnPreferenceClickListener {
+                UserPreferences.resetKinogerDomain()
+
+                findPreference<EditTextPreference>("provider_kinoger_domain")
+                    ?.apply {
+                        text = UserPreferences.kinogerDomain
+                        summary = UserPreferences.kinogerDomain
+                    }
+
+                true
+            }
+
+        findPreference<EditTextPreference>("provider_vavoo_domain")?.apply {
+            text = UserPreferences.vavooDomain
+            summary = UserPreferences.vavooDomain
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val value = newValue?.toString().orEmpty()
+                UserPreferences.vavooDomain = value
+                text = UserPreferences.vavooDomain
+                summary = UserPreferences.vavooDomain
+                true
+            }
+        }
+
+        findPreference<Preference>("provider_vavoo_domain_reset")?.setOnPreferenceClickListener {
+            UserPreferences.resetVavooDomain()
+
+            findPreference<EditTextPreference>("provider_vavoo_domain")?.apply {
+                text = UserPreferences.vavooDomain
+                summary = UserPreferences.vavooDomain
+            }
+
+            true
+        }
+
+
+        findPreference<EditTextPreference>("provider_kellerkino_domain")?.apply {
+            text = UserPreferences.kellerkinoDomain
+            summary = UserPreferences.kellerkinoDomain
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val value = newValue?.toString().orEmpty()
+                UserPreferences.kellerkinoDomain = value
+                text = UserPreferences.kellerkinoDomain
+                summary = UserPreferences.kellerkinoDomain
+                true
+            }
+        }
+
+        findPreference<Preference>("provider_kellerkino_domain_reset")
+            ?.setOnPreferenceClickListener {
+                UserPreferences.resetKellerkinoDomain()
+
+                findPreference<EditTextPreference>(
+                    "provider_kellerkino_domain"
+                )?.apply {
+                    text = UserPreferences.kellerkinoDomain
+                    summary = UserPreferences.kellerkinoDomain
+                }
+
+                true
+            }
+
+
+        val tmdbProviderMap = mapOf(
+            "TMDB_CATALOG_NETFLIX" to "netflix",
+            "TMDB_CATALOG_PRIME" to "prime",
+            "TMDB_CATALOG_DISNEY" to "disney",
+            "TMDB_CATALOG_APPLE" to "apple",
+            "TMDB_CATALOG_MAX" to "max",
+            "TMDB_CATALOG_HULU" to "hulu",
+        )
+
+        tmdbProviderMap.forEach { (prefKey, valueKey) ->
+            findPreference<SwitchPreferenceCompat>(prefKey)?.apply {
+                isChecked =
+                    valueKey in UserPreferences.tmdbCatalogProviders
+
+                setOnPreferenceChangeListener { _, newValue ->
+                    val selected =
+                        UserPreferences.tmdbCatalogProviders
+                            .toMutableSet()
+
+                    if (newValue as Boolean) {
+                        selected.add(valueKey)
+                    } else {
+                        selected.remove(valueKey)
+                    }
+
+                    UserPreferences.tmdbCatalogProviders = selected
+                    ProviderChangeNotifier.notifyProviderChanged()
+                    true
+                }
+            }
+        }
+
+        val tmdbModeMap = mapOf(
+            "TMDB_CATALOG_POPULAR" to "popular",
+            "TMDB_CATALOG_TOP" to "top",
+            "TMDB_CATALOG_NEW" to "new",
+        )
+
+        tmdbModeMap.forEach { (prefKey, valueKey) ->
+            findPreference<SwitchPreferenceCompat>(prefKey)?.apply {
+                isChecked =
+                    valueKey in UserPreferences.tmdbCatalogModes
+
+                setOnPreferenceChangeListener { _, newValue ->
+                    val selected =
+                        UserPreferences.tmdbCatalogModes
+                            .toMutableSet()
+
+                    if (newValue as Boolean) {
+                        selected.add(valueKey)
+                    } else {
+                        selected.remove(valueKey)
+                    }
+
+                    if (selected.isEmpty()) {
+                        selected.add("popular")
+                    }
+
+                    UserPreferences.tmdbCatalogModes = selected
+                    ProviderChangeNotifier.notifyProviderChanged()
+                    true
+                }
+            }
+        }
+
+findPreference<EditTextPreference>("provider_url")?.apply {
                 isVisible = configProvider != null
                 isEnabled = autoUpdateVal == false
                 if (isVisible && provider != null && configProvider != null) {
@@ -1473,6 +1622,81 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         } ?: getString(R.string.settings_provider_connection_title)
     }
 
+
+    private fun configurableDomainDefault(providerName: String?): String? =
+        when (providerName) {
+            "AniWorld" -> "https://aniworld.to/"
+            "Filmpalast" -> "https://filmpalast.to/"
+            "HDFilme" -> "https://hdfilme.cafe/"
+            "MEGAKino" -> "https://megakino12.com"
+            "Einschalten" -> "https://einschalten.in"
+            else -> null
+        }
+
+    private fun bindGenericProviderDomain() {
+        val provider = UserPreferences.currentProvider ?: return
+        val defaultBaseUrl = configurableDomainDefault(provider.name) ?: return
+
+        findPreference<EditTextPreference>("provider_domain_generic")?.apply {
+            val displayDomain =
+                UserPreferences.providerDomainForDisplay(provider.name, defaultBaseUrl)
+
+            summary = displayDomain
+
+            val customDomain = UserPreferences.getProviderCustomDomain(provider.name)
+            text = customDomain.ifBlank { null }
+
+            setOnBindEditTextListener { editText ->
+                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+                editText.imeOptions = EditorInfo.IME_ACTION_DONE
+                editText.hint = UserPreferences.providerDomainForDisplay(
+                    provider.name,
+                    defaultBaseUrl
+                )
+            }
+
+            setOnPreferenceChangeListener { preference, newValue ->
+                val typed = (newValue as String).trim()
+
+                if (typed.isBlank()) {
+                    UserPreferences.resetProviderCustomDomain(provider.name)
+                } else {
+                    UserPreferences.setProviderCustomDomain(provider.name, typed)
+                }
+
+                preference.summary =
+                    UserPreferences.providerDomainForDisplay(provider.name, defaultBaseUrl)
+
+                ProviderChangeNotifier.notifyProviderChanged()
+
+                true
+            }
+        }
+
+        findPreference<Preference>("provider_domain_generic_reset")
+            ?.setOnPreferenceClickListener {
+                UserPreferences.resetProviderCustomDomain(provider.name)
+
+                findPreference<EditTextPreference>("provider_domain_generic")?.apply {
+                    text = null
+                    summary = UserPreferences.providerDomainForDisplay(
+                        provider.name,
+                        defaultBaseUrl
+                    )
+                }
+
+                ProviderChangeNotifier.notifyProviderChanged()
+
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.settings_provider_domain_reset_done),
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                true
+            }
+    }
+
     private fun updateProviderVisibilityState() {
         val isStreamingCommunity = UserPreferences.currentProvider is StreamingCommunityProvider
         val isSerienStream = UserPreferences.currentProvider is SerienStreamProvider
@@ -1480,16 +1704,326 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         val isCuevana = UserPreferences.currentProvider?.name == "Cuevana 3"
         val isPoseidon = UserPreferences.currentProvider?.name == "Poseidonhd2"
         val isAnimeOnlineNinja = UserPreferences.currentProvider is AnimeOnlineNinjaProvider
-        val hasConfigProvider = UserPreferences.currentProvider is ProviderConfigUrl
-        val hasSpecificOptions = isStreamingCommunity || isCuevana || isPoseidon || isAnimeOnlineNinja
+        val currentProviderName =
+            UserPreferences.currentProvider?.name.orEmpty()
 
+        val isKinoGer =
+            currentProviderName == "KinoGer"
+
+        val isVavooVod =
+            currentProviderName == "Vavoo VOD" ||
+                currentProviderName.startsWith("Vavoo VOD ")
+
+        val isVavooLive =
+            currentProviderName.startsWith("Vavoo ") &&
+                currentProviderName.endsWith(" Live TV")
+
+        val isKellerKino =
+            currentProviderName.equals(
+                "Kellerkino",
+                ignoreCase = true
+            )
+
+        val hasGenericDomain =
+            configurableDomainDefault(UserPreferences.currentProvider?.name) != null
+
+        val hasConfigProvider =
+            UserPreferences.currentProvider is ProviderConfigUrl
+
+        val hasSpecificOptions =
+            isStreamingCommunity ||
+                isSerienStream ||
+                isMoflix ||
+                isCuevana ||
+                isPoseidon ||
+                isAnimeOnlineNinja ||
+                isKinoGer ||
+                isVavooVod ||
+                isVavooLive ||
+                isKellerKino ||
+                hasGenericDomain
+
+findPreference<PreferenceCategory>("pc_generic_provider_domain_settings")?.isVisible =
+            hasGenericDomain
         findPreference<PreferenceCategory>("pc_streamingcommunity_settings")?.isVisible = isStreamingCommunity
         findPreference<PreferenceCategory>("pc_serienstream_settings")?.isVisible = isSerienStream
         findPreference<PreferenceCategory>("pc_moflix_settings")?.isVisible = isMoflix
         findPreference<PreferenceCategory>("pc_cuevana_settings")?.isVisible = isCuevana
         findPreference<PreferenceCategory>("pc_poseidon_settings")?.isVisible = isPoseidon
         findPreference<PreferenceCategory>("pc_animeonlineninja_settings")?.isVisible = isAnimeOnlineNinja
+        findPreference<PreferenceCategory>(
+            "pc_kinoger_domain_settings"
+        )?.isVisible = isKinoGer
+
+        findPreference<PreferenceCategory>(
+            "pc_vavoo_domain_settings"
+        )?.isVisible = isVavooVod || isVavooLive
+
+        findPreference<PreferenceCategory>(
+            "pc_kellerkino_domain_settings"
+        )?.isVisible = isKellerKino
+
         findPreference<PreferenceCategory>("pc_provider_empty_state")?.isVisible = !hasConfigProvider && !hasSpecificOptions
+    }
+
+    private fun bindProviderDomainCheckButtons() {
+
+        fun showDomainCheckResult(
+            result: Result<String>
+        ) {
+            result.onSuccess { message ->
+                Toast.makeText(
+                    requireContext(),
+                    message,
+                    Toast.LENGTH_LONG
+                ).show()
+            }.onFailure { error ->
+                Toast.makeText(
+                    requireContext(),
+                    getString(
+                        R.string.settings_provider_domain_check_failed,
+                        error.message ?: error.javaClass.simpleName
+                    ),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        fun checkAndUpdate(
+            currentValue: () -> String,
+            saveValue: (String) -> Unit,
+            saveHostOnly: Boolean = false,
+            afterSave: (() -> Unit)? = null,
+        ) {
+            viewLifecycleOwner.lifecycleScope.launch {
+
+                val result = runCatching {
+                    val checked =
+                        DomainRedirectChecker.check(currentValue())
+
+                    if (!checked.changed) {
+                        return@runCatching getString(
+                            R.string.settings_provider_domain_check_current
+                        )
+                    }
+
+                    val valueToSave =
+                        if (saveHostOnly) {
+                            DomainRedirectChecker.hostOnly(
+                                checked.finalUrl
+                            )
+                        } else {
+                            checked.finalUrl
+                        }
+
+                    saveValue(valueToSave)
+                    afterSave?.invoke()
+
+                    getString(
+                        R.string.settings_provider_domain_check_updated,
+                        valueToSave
+                    )
+                }
+
+                showDomainCheckResult(result)
+            }
+        }
+
+        // PR1 generic German providers:
+        // AniWorld, FilmPalast, HDFilme, MEGAKino, Einschalten
+        findPreference<Preference>(
+            "provider_domain_generic_check"
+        )?.setOnPreferenceClickListener {
+
+            val provider =
+                UserPreferences.currentProvider
+
+            val providerName =
+                provider?.name
+
+            val defaultBase =
+                configurableDomainDefault(providerName)
+
+            if (
+                providerName.isNullOrBlank() ||
+                defaultBase.isNullOrBlank()
+            ) {
+                Toast.makeText(
+                    requireContext(),
+                    getString(
+                        R.string.settings_provider_domain_check_failed,
+                        "Provider not supported"
+                    ),
+                    Toast.LENGTH_LONG
+                ).show()
+
+                return@setOnPreferenceClickListener true
+            }
+
+            val current =
+                UserPreferences.resolveProviderBaseUrl(
+                    providerName,
+                    defaultBase
+                )
+
+            checkAndUpdate(
+                currentValue = { current },
+                saveValue = { newDomain ->
+                    UserPreferences.setProviderCustomDomain(
+                        providerName,
+                        newDomain
+                    )
+                },
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_domain_generic"
+                    )?.apply {
+                        text =
+                            UserPreferences.providerDomainForDisplay(
+                                providerName,
+                                defaultBase
+                            )
+
+                        summary = text
+                    }
+                }
+            )
+
+            true
+        }
+
+        // KinoGer
+        findPreference<Preference>(
+            "provider_kinoger_domain_check"
+        )?.setOnPreferenceClickListener {
+
+            checkAndUpdate(
+                currentValue = {
+                    UserPreferences.kinogerDomain
+                },
+                saveValue = { newDomain ->
+                    UserPreferences.kinogerDomain = newDomain
+                },
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_kinoger_domain"
+                    )?.apply {
+                        text = UserPreferences.kinogerDomain
+                        summary = UserPreferences.kinogerDomain
+                    }
+                }
+            )
+
+            true
+        }
+
+        // Vavoo
+        findPreference<Preference>(
+            "provider_vavoo_domain_check"
+        )?.setOnPreferenceClickListener {
+
+            checkAndUpdate(
+                currentValue = {
+                    UserPreferences.vavooDomain
+                },
+                saveValue = { newDomain ->
+                    UserPreferences.vavooDomain = newDomain
+                },
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_vavoo_domain"
+                    )?.apply {
+                        text = UserPreferences.vavooDomain
+                        summary = UserPreferences.vavooDomain
+                    }
+                }
+            )
+
+            true
+        }
+
+        // KellerKino
+        findPreference<Preference>(
+            "provider_kellerkino_domain_check"
+        )?.setOnPreferenceClickListener {
+
+            checkAndUpdate(
+                currentValue = {
+                    UserPreferences.kellerkinoDomain
+                },
+                saveValue = { newDomain ->
+                    UserPreferences.kellerkinoDomain = newDomain
+                },
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_kellerkino_domain"
+                    )?.apply {
+                        text = UserPreferences.kellerkinoDomain
+                        summary = UserPreferences.kellerkinoDomain
+                    }
+                }
+            )
+
+            true
+        }
+
+        // SerienStream stores only the hostname
+        findPreference<Preference>(
+            "provider_serienstream_domain_check"
+        )?.setOnPreferenceClickListener {
+
+            checkAndUpdate(
+                currentValue = {
+                    UserPreferences.serienstreamDomain
+                },
+                saveValue = { newDomain ->
+                    UserPreferences.serienstreamDomain = newDomain
+                },
+                saveHostOnly = true,
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_serienstream_domain"
+                    )?.apply {
+                        text =
+                            UserPreferences.serienstreamDomain
+
+                        summary =
+                            UserPreferences.serienstreamDomain
+                    }
+                }
+            )
+
+            true
+        }
+
+        // Moflix stores only the hostname
+        findPreference<Preference>(
+            "provider_moflix_domain_check"
+        )?.setOnPreferenceClickListener {
+
+            checkAndUpdate(
+                currentValue = {
+                    UserPreferences.moflixDomain
+                },
+                saveValue = { newDomain ->
+                    UserPreferences.moflixDomain = newDomain
+                },
+                saveHostOnly = true,
+                afterSave = {
+                    findPreference<EditTextPreference>(
+                        "provider_moflix_domain"
+                    )?.apply {
+                        text =
+                            UserPreferences.moflixDomain
+
+                        summary =
+                            UserPreferences.moflixDomain
+                    }
+                }
+            )
+
+            true
+        }
     }
 
     private fun bindAnimeOnlineNinjaPreferredServer() {
@@ -1973,8 +2507,8 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         findPreference<SwitchPreference>("AUTOPLAY")?.isChecked = UserPreferences.autoplay
         findPreference<SwitchPreference>("FORCE_EXTRA_BUFFERING")?.isChecked = UserPreferences.forceExtraBuffering
         findPreference<SwitchPreference>("SERVER_AUTO_SUBTITLES_DISABLED")?.isChecked = UserPreferences.serverAutoSubtitlesDisabled
-        
-        val bufferPref: EditTextPreference? = findPreference("p_settings_autoplay_buffer") 
+
+        val bufferPref: EditTextPreference? = findPreference("p_settings_autoplay_buffer")
         bufferPref?.summaryProvider = Preference.SummaryProvider<EditTextPreference> { pref ->
             val value = pref.text?.toLongOrNull() ?: 3L
             "$value s"

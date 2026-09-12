@@ -768,6 +768,11 @@ class MovieViewHolder(
             }
         }
 
+        binding.tvMovieContentRating.apply {
+            text = movie.contentRating?.certification
+            visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+
         binding.tvMovieRuntime.apply {
             text = movie.runtime?.let {
                 val hours = it / 60
@@ -897,6 +902,11 @@ class MovieViewHolder(
                 text.isNullOrEmpty() -> View.GONE
                 else -> View.VISIBLE
             }
+        }
+
+        binding.tvMovieContentRating.apply {
+            text = movie.contentRating?.certification
+            visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
 
         binding.tvMovieRuntime.apply {

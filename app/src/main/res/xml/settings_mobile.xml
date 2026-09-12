@@ -9,6 +9,68 @@
         android:widgetLayout="@layout/preference_widget_chevron"
         app:iconSpaceReserved="false">
 
+
+
+
+        <PreferenceCategory
+            android:title="@string/settings_tmdb_streaming_catalogs">
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_NETFLIX"
+                android:title="Netflix"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_PRIME"
+                android:title="Prime Video"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_DISNEY"
+                android:title="Disney+"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_APPLE"
+                android:title="Apple TV+"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_MAX"
+                android:title="Max / HBO"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_HULU"
+                android:title="Hulu"
+                android:defaultValue="true" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            android:title="@string/settings_tmdb_catalog_modes">
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_POPULAR"
+                android:title="@string/settings_tmdb_catalog_popular"
+                android:summary="@string/settings_tmdb_catalog_popular_summary"
+                android:defaultValue="true" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_TOP"
+                android:title="@string/settings_tmdb_catalog_top"
+                android:summary="@string/settings_tmdb_catalog_top_summary"
+                android:defaultValue="false" />
+
+            <SwitchPreferenceCompat
+                android:key="TMDB_CATALOG_NEW"
+                android:title="@string/settings_tmdb_catalog_new"
+                android:summary="@string/settings_tmdb_catalog_new_summary"
+                android:defaultValue="false" />
+
+        </PreferenceCategory>
+
+
         <PreferenceCategory
             android:key="pc_tmdb_settings"
             android:title="@string/settings_category_tmdb"
@@ -294,6 +356,103 @@
                 app:iconSpaceReserved="false" />
         </PreferenceCategory>
 
+
+        
+
+        
+
+
+        <PreferenceCategory
+            android:key="pc_generic_provider_domain_settings"
+            android:title="@string/settings_category_provider_domain">
+
+            <EditTextPreference
+                android:key="provider_domain_generic"
+                android:title="@string/settings_provider_domain"
+                android:summary="@string/settings_provider_domain_summary"
+                android:inputType="textUri" />
+
+            <Preference
+                android:key="provider_domain_generic_reset"
+                android:title="@string/settings_provider_domain_reset"
+                android:summary="@string/settings_provider_domain_reset_summary" />
+
+            <Preference
+                android:key="provider_domain_generic_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            android:key="pc_kinoger_domain_settings"
+            android:title="@string/settings_provider_kinoger_domain">
+
+            <EditTextPreference
+                android:key="provider_kinoger_domain"
+                android:title="@string/settings_provider_kinoger_domain"
+                android:summary="@string/settings_provider_kinoger_domain_summary"
+                android:inputType="textUri"
+                android:singleLine="true" />
+
+            <Preference
+                android:key="provider_kinoger_domain_reset"
+                android:title="@string/settings_provider_kinoger_domain_reset" />
+
+            <Preference
+                android:key="provider_kinoger_domain_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            android:key="pc_vavoo_domain_settings"
+            android:title="@string/settings_provider_vavoo_domain">
+
+            <EditTextPreference
+                android:key="provider_vavoo_domain"
+                android:title="@string/settings_provider_vavoo_domain"
+                android:summary="@string/settings_provider_vavoo_domain_summary"
+                android:inputType="textUri"
+                android:singleLine="true" />
+
+            <Preference
+                android:key="provider_vavoo_domain_reset"
+                android:title="@string/settings_provider_vavoo_domain_reset" />
+
+            <Preference
+                android:key="provider_vavoo_domain_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            android:key="pc_kellerkino_domain_settings"
+            android:title="@string/settings_provider_kellerkino_domain">
+
+            <EditTextPreference
+                android:key="provider_kellerkino_domain"
+                android:title="@string/settings_provider_kellerkino_domain"
+                android:summary="@string/settings_provider_kellerkino_domain_summary"
+                android:inputType="textUri"
+                android:singleLine="true" />
+
+            <Preference
+                android:key="provider_kellerkino_domain_reset"
+                android:title="@string/settings_provider_kellerkino_domain_reset" />
+
+            <Preference
+                android:key="provider_kellerkino_domain_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
+        </PreferenceCategory>
+
+
         <PreferenceCategory
             android:key="pc_streamingcommunity_settings"
             android:title="@string/settings_category_streamingcommunity"
@@ -328,6 +487,12 @@
                 android:title="@string/settings_serienstream_domain_reset"
                 android:summary="@string/settings_serienstream_domain_reset_summary"
                 app:iconSpaceReserved="false" />
+
+            <Preference
+                android:key="provider_serienstream_domain_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
         </PreferenceCategory>
 
         <PreferenceCategory
@@ -346,6 +511,12 @@
                 android:title="@string/settings_moflix_domain_reset"
                 android:summary="@string/settings_moflix_domain_reset_summary"
                 app:iconSpaceReserved="false" />
+
+            <Preference
+                android:key="provider_moflix_domain_check"
+                android:title="@string/settings_provider_domain_check"
+                android:summary="@string/settings_provider_domain_check_summary" />
+
         </PreferenceCategory>
 
         <PreferenceCategory

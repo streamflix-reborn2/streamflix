@@ -54,18 +54,56 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
+import com.streamflixreborn.streamflix.utils.UserPreferences
 
 object AniWorldProvider : Provider {
 
 
-    private const val URL = "https://aniworld.to/"
-    override val baseUrl = URL
+    private const val DEFAULT_BASE_URL = "https://aniworld.to/"
 
     override val name = "AniWorld"
-    override val logo = "$URL/public/img/facebook.jpg"
+
+    override val baseUrl: String
+        get() = UserPreferences.resolveProviderBaseUrl(name, DEFAULT_BASE_URL)
+
+    override val logo: String
+        get() = "${baseUrl.trimEnd('/')}/public/img/facebook.jpg"
     override val language = "de"
 
-    private val service = Service.build()
+    @Volatile
+    private var cachedService: Service? = null
+
+    @Volatile
+    private var cachedServiceBaseUrl: String? = null
+
+    private val service: Service
+        get() {
+            val currentBaseUrl = baseUrl.trimEnd('/') + "/"
+            val currentService = cachedService
+
+            if (currentService != null && cachedServiceBaseUrl == currentBaseUrl) {
+                return currentService
+            }
+
+            return synchronized(this) {
+                val synchronizedService = cachedService
+
+                if (
+                    synchronizedService != null &&
+                    cachedServiceBaseUrl == currentBaseUrl
+                ) {
+                    synchronizedService
+                } else {
+                    Service.build(currentBaseUrl).also {
+                        cachedService = it
+                        cachedServiceBaseUrl = currentBaseUrl
+                    }
+                }
+            }
+        }
+
+    private fun siteUrl(path: String): String =
+        "${baseUrl.trimEnd('/')}/${path.trimStart('/')}"
 
     private var tvShowDao: TvShowDao? = null
     private var isWorkerScheduled = false
@@ -129,7 +167,7 @@ object AniWorldProvider : Provider {
                                 ?.text()
                                 ?: "",
                             poster = it.selectFirst("img")
-                                ?.attr("data-src")?.let { src -> URL + src },
+                                ?.attr("data-src")?.let { src -> siteUrl(src) },
                         )
                     }
             )
@@ -148,7 +186,7 @@ object AniWorldProvider : Provider {
                                 ?.text()
                                 ?: "",
                             poster = it.selectFirst("img")
-                                ?.attr("data-src")?.let { src -> URL + src },
+                                ?.attr("data-src")?.let { src -> siteUrl(src) },
                         )
                     }
             )
@@ -167,7 +205,7 @@ object AniWorldProvider : Provider {
                                 ?.text()
                                 ?: "",
                             poster = it.selectFirst("img")
-                                ?.attr("data-src")?.let { src -> URL + src },
+                                ?.attr("data-src")?.let { src -> siteUrl(src) },
                         )
                     }
             )
@@ -250,11 +288,11 @@ object AniWorldProvider : Provider {
             trailer = document.selectFirst("div[itemprop='trailer'] a")
                 ?.attr("href"),
             poster = document.selectFirst("div.seriesCoverBox img")
-                ?.attr("data-src")?.let { URL + it },
+                ?.attr("data-src")?.let { siteUrl(it) },
             banner = document.selectFirst("#series > section > div.backdrop")
                 ?.attr("style")
                 ?.replace("background-image: url(/", "")?.replace(")", "")
-                ?.let { URL + it },
+                ?.let { siteUrl(it) },
 
 
             seasons = document.select("#stream > ul:nth-child(1) > li")
@@ -375,7 +413,7 @@ object AniWorldProvider : Provider {
                         ?.text()
                         ?: "",
                     poster = it.selectFirst("img")
-                        ?.attr("data-src")?.let { src -> URL + src },
+                        ?.attr("data-src")?.let { src -> siteUrl(src) },
                 )
             }
         )
@@ -402,7 +440,7 @@ object AniWorldProvider : Provider {
                     title = it.selectFirst("h3")
                         ?.text() ?: "",
                     poster = it.selectFirst("img")
-                        ?.attr("data-src")?.let { src -> URL + src },
+                        ?.attr("data-src")?.let { src -> siteUrl(src) },
                 )
             }
         )
@@ -417,7 +455,7 @@ object AniWorldProvider : Provider {
 
         val servers = document.select("div.hosterSiteVideo > ul > li").mapNotNull {
             val redirectUrl = it.selectFirst("a")
-                ?.attr("href")?.let { href -> URL + href }
+                ?.attr("href")?.let { href -> siteUrl(href) }
                 ?: return@mapNotNull null
 
             val name = it.selectFirst("h4")
@@ -561,10 +599,10 @@ object AniWorldProvider : Provider {
                 }
             }
 
-            fun build(): Service {
+            fun build(baseUrl: String): Service {
                 val client = getOkHttpClient()
                 val retrofit = Retrofit.Builder()
-                    .baseUrl(URL)
+                    .baseUrl(baseUrl)
                     .addConverterFactory(JsoupConverterFactory.create())
                     .addConverterFactory(GsonConverterFactory.create())
                     .client(client)
@@ -572,10 +610,10 @@ object AniWorldProvider : Provider {
                 return retrofit.create(Service::class.java)
             }
 
-            fun buildUnsafe(): Service {
+            fun buildUnsafe(baseUrl: String): Service {
                 val client = getUnsafeOkHttpClient()
                 val retrofit = Retrofit.Builder()
-                    .baseUrl(URL)
+                    .baseUrl(baseUrl)
                     .addConverterFactory(JsoupConverterFactory.create())
                     .addConverterFactory(GsonConverterFactory.create())
                     .client(client)
@@ -587,7 +625,7 @@ object AniWorldProvider : Provider {
         @GET(".")
         suspend fun getHome(): Document
 
-        @POST("https://aniworld.to/ajax/search")
+        @POST("ajax/search")
         @FormUrlEncoded
         suspend fun search(@Field("keyword") query: String): List<SearchItem>
 

@@ -3,6 +3,8 @@ package com.streamflixreborn.streamflix.providers
 import android.util.Log
 import com.streamflixreborn.streamflix.adapters.AppAdapter
 import com.streamflixreborn.streamflix.models.*
+import com.streamflixreborn.streamflix.utils.UserPreferences
+import com.streamflixreborn.streamflix.utils.VavooTls
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -22,19 +24,38 @@ class VavooProvider(override val language: String) : IptvProvider {
             "it" to Triple("it", "IT", listOf("Italy")),
             "fr" to Triple("fr", "FR", listOf("France", "France Sport")),
             "es" to Triple("es", "ES", listOf("Spain")),
-            "pl" to Triple("pl", "PL", listOf("Poland"))
+            "pl" to Triple("pl", "PL", listOf("Poland")),
+            "en" to Triple("en", "GB", listOf("United Kingdom"))
         )
+
+        private const val PLAYBACK_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/116.0.0.0 Safari/537.36"
 
         private val client = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
+
+        // Kurze Timeouts: tote Vavoo-Quellen sollen automatisch
+        // verworfen werden, ohne den Nutzer lange warten zu lassen.
+        private val probeClient = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
     }
 
-    override val baseUrl: String = "https://vavoo.to"
+    override val baseUrl: String
+        get() = UserPreferences.vavooDomain
 
-    private val CATALOG_URL = "$baseUrl/mediahubmx-catalog.json"
-    private val RESOLVE_URL = "$baseUrl/mediahubmx-resolve.json"
+    private val CATALOG_URL: String
+        get() = "$baseUrl/mediahubmx-catalog.json"
+
+    private val RESOLVE_URL: String
+        get() = "$baseUrl/mediahubmx-resolve.json"
 
     // Cache for home categories per language to avoid instant re-fetching
     private val homeCache = mutableMapOf<String, List<VavooChannel>>()
@@ -53,7 +74,8 @@ class VavooProvider(override val language: String) : IptvProvider {
     private val config = LANG_CONFIG[language] ?: LANG_CONFIG["de"]!!
 
     override val name: String = "Vavoo ${config.third.first()} Live TV"
-    override val logo: String = "$baseUrl/assets/favicon-Djqjt9PL.ico"
+    override val logo: String
+        get() = "$baseUrl/assets/favicon-Djqjt9PL.ico"
 
     private val primaryGroups: List<String> = config.third
 
@@ -62,8 +84,8 @@ class VavooProvider(override val language: String) : IptvProvider {
             put("group", group)
         }
         val body = JSONObject().apply {
-            put("language", "de")
-            put("region", "DE")
+            put("language", config.first)
+            put("region", config.second)
             put("catalogId", "iptv")
             put("id", "")
             put("adult", false)
@@ -122,8 +144,8 @@ class VavooProvider(override val language: String) : IptvProvider {
 
     private fun resolveChannel(vavooUrl: String): ResolvedChannel? {
         val body = JSONObject().apply {
-            put("language", "de")
-            put("region", "DE")
+            put("language", config.first)
+            put("region", config.second)
             put("url", vavooUrl)
         }.toString()
         return try {
@@ -241,13 +263,284 @@ class VavooProvider(override val language: String) : IptvProvider {
         return listOf(Video.Server(id = id, name = "Vavoo"))
     }
 
+    private fun cachedChannelName(id: String): String? {
+        searchCache[id]?.let { return it }
+
+        for (group in primaryGroups) {
+            homeCache[group]
+                ?.firstOrNull { it.id == id }
+                ?.name
+                ?.let { return it }
+        }
+
+        return null
+    }
+
+    /**
+     * Entfernt Vavoo-Quellen-/Qualitätszusätze, damit z.B.
+     *
+     * 3SAT .b
+     * 3SAT .c
+     * 3SAT HD .b
+     *
+     * als Varianten desselben Senders erkannt werden.
+     */
+    private fun channelBaseName(name: String): String {
+        var result = name.trim()
+
+        repeat(3) {
+            result = result
+                .replace(
+                    Regex(
+                        """\s*\.(?:b|c|s)\s*$""",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
+                .replace(
+                    Regex(
+                        """\s*\(backup\)\s*$""",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
+                .replace(
+                    Regex(
+                        """\s+(?:HD\+?|FHD|UHD|RAW|SD)\s*$""",
+                        RegexOption.IGNORE_CASE
+                    ),
+                    ""
+                )
+                .trim()
+        }
+
+        return result
+    }
+
+    private fun canonicalChannelName(name: String): String =
+        channelBaseName(name)
+            .uppercase()
+            .replace(Regex("""[^A-Z0-9]+"""), "")
+
+    private fun playbackHeaders(): Map<String, String> =
+        mapOf(
+            "User-Agent" to PLAYBACK_USER_AGENT,
+            "Referer" to "${baseUrl.trimEnd('/')}/",
+            "Origin" to baseUrl.trimEnd('/')
+        )
+
+    /**
+     * Prüft auf demselben Android-Gerät, auf dem danach auch
+     * ExoPlayer läuft, ob die aufgelöste HLS-Quelle wirklich
+     * erreichbar ist.
+     *
+     * Abgelaufene TLS-Zertifikate werden NICHT akzeptiert.
+     */
+    private fun probeResolvedStream(url: String): Boolean {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", PLAYBACK_USER_AGENT)
+                .header(
+                    "Referer",
+                    "${baseUrl.trimEnd('/')}/"
+                )
+                .header(
+                    "Origin",
+                    baseUrl.trimEnd('/')
+                )
+                .header("Range", "bytes=0-4095")
+                .build()
+
+            val probeHost =
+                runCatching {
+                    java.net.URI(url).host
+                }.getOrNull()
+
+            val effectiveProbeClient =
+                if (!probeHost.isNullOrBlank()) {
+                    VavooTls
+                        .relaxForHost(
+                            probeClient.newBuilder(),
+                            probeHost
+                        )
+                        .build()
+                } else {
+                    probeClient
+                }
+
+            effectiveProbeClient
+                .newCall(request)
+                .execute()
+                .use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(
+                        TAG,
+                        "Probe HTTP ${response.code}: $url"
+                    )
+                    return@use false
+                }
+
+                val contentType =
+                    response.header("Content-Type")
+                        .orEmpty()
+                        .lowercase()
+
+                val body =
+                    response.body
+                        ?.string()
+                        .orEmpty()
+                        .take(4096)
+
+                val hls =
+                    body.contains("#EXTM3U") ||
+                        contentType.contains(
+                            "mpegurl"
+                        ) ||
+                        contentType.contains(
+                            "application/vnd.apple"
+                        )
+
+                Log.d(
+                    TAG,
+                    "Probe ${if (hls) "OK" else "INVALID"} " +
+                        "HTTP=${response.code} " +
+                        "type=$contentType"
+                )
+
+                hls
+            }
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Probe failed: ${e.javaClass.simpleName}: ${e.message}"
+            )
+
+            false
+        }
+    }
+
+    /**
+     * Liefert zuerst die angeklickte Quelle und anschließend
+     * weitere Vavoo-Varianten desselben Senders.
+     */
+    private fun playbackCandidates(
+        id: String
+    ): List<VavooChannel> {
+
+        val currentUrl =
+            if (id.startsWith("http")) {
+                id
+            } else {
+                "$baseUrl/vavoo-iptv/play/$id"
+            }
+
+        val currentName =
+            cachedChannelName(id)
+                ?: return listOf(
+                    VavooChannel(
+                        id = id,
+                        name = id,
+                        url = currentUrl
+                    )
+                )
+
+        val wanted =
+            canonicalChannelName(currentName)
+
+        val query =
+            channelBaseName(currentName)
+
+        val alternatives =
+            primaryGroups
+                .flatMap { group ->
+                    fetchChannels(
+                        search = query,
+                        group = group
+                    ).first
+                }
+                .filter {
+                    canonicalChannelName(
+                        it.name
+                    ) == wanted
+                }
+
+        val current =
+            VavooChannel(
+                id = id,
+                name = currentName,
+                url = currentUrl
+            )
+
+        return (listOf(current) + alternatives)
+            .distinctBy { it.url }
+    }
+
     override suspend fun getVideo(server: Video.Server): Video {
-        val vavooUrl = if (server.id.startsWith("http")) server.id else "$baseUrl/vavoo-iptv/play/${server.id}"
-        Log.d(TAG, "[$language] Resolving: $vavooUrl")
-        val resolved = resolveChannel(vavooUrl)
-            ?: throw Exception("Vavoo: could not resolve stream URL for $vavooUrl")
-        Log.d(TAG, "[$language] Playing: ${resolved.url}")
-        return Video(source = resolved.url, subtitles = emptyList())
+        val candidates =
+            playbackCandidates(server.id)
+
+        Log.d(
+            TAG,
+            "[$language] Found ${candidates.size} " +
+                "candidate(s) for ${server.id}"
+        )
+
+        candidates.forEachIndexed { index, candidate ->
+
+            Log.d(
+                TAG,
+                "[$language] Candidate ${index + 1}/" +
+                    "${candidates.size}: ${candidate.name} " +
+                    "(${candidate.url})"
+            )
+
+            val resolved =
+                resolveChannel(candidate.url)
+
+            if (resolved == null) {
+                Log.w(
+                    TAG,
+                    "[$language] Resolve failed: " +
+                        candidate.name
+                )
+
+                return@forEachIndexed
+            }
+
+            Log.d(
+                TAG,
+                "[$language] Resolved ${candidate.name}: " +
+                    resolved.url
+            )
+
+            if (!probeResolvedStream(resolved.url)) {
+                Log.w(
+                    TAG,
+                    "[$language] Source unusable, " +
+                        "trying next: ${candidate.name}"
+                )
+
+                return@forEachIndexed
+            }
+
+            Log.d(
+                TAG,
+                "[$language] PLAYABLE source selected: " +
+                    candidate.name
+            )
+
+            return Video(
+                source = resolved.url,
+                subtitles = emptyList(),
+                headers = playbackHeaders()
+            )
+        }
+
+        throw Exception(
+            "Vavoo: no playable source found for ${server.id}"
+        )
     }
 }
 

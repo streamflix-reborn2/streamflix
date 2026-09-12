@@ -29,11 +29,16 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.json.JSONArray
 import java.util.concurrent.TimeUnit
+import com.streamflixreborn.streamflix.utils.UserPreferences
 
 object EinschaltenProvider : Provider {
 
     override val name = "Einschalten"
-    override val baseUrl = "https://einschalten.in"
+
+    private const val DEFAULT_BASE_URL = "https://einschalten.in"
+
+    override val baseUrl: String
+        get() = UserPreferences.resolveProviderBaseUrl(name, DEFAULT_BASE_URL)
     override val logo = "https://images2.imgbox.com/74/12/NBWU0dNi_o.png"
     override val language = "de"
 
@@ -81,7 +86,37 @@ object EinschaltenProvider : Provider {
         ): ResponseBody
     }
 
-    private val service = EinschaltenService.build(baseUrl)
+    @Volatile
+    private var cachedService: EinschaltenService? = null
+
+    @Volatile
+    private var cachedServiceBaseUrl: String? = null
+
+    private val service: EinschaltenService
+        get() {
+            val currentBaseUrl = baseUrl.trimEnd('/') + "/"
+            val currentService = cachedService
+
+            if (currentService != null && cachedServiceBaseUrl == currentBaseUrl) {
+                return currentService
+            }
+
+            return synchronized(this) {
+                val synchronizedService = cachedService
+
+                if (
+                    synchronizedService != null &&
+                    cachedServiceBaseUrl == currentBaseUrl
+                ) {
+                    synchronizedService
+                } else {
+                    EinschaltenService.build(currentBaseUrl).also {
+                        cachedService = it
+                        cachedServiceBaseUrl = currentBaseUrl
+                    }
+                }
+            }
+        }
 
     private suspend fun getPosterUrl(movieId: String, posterPath: String): String {
         if (posterPath.isNotBlank()) {

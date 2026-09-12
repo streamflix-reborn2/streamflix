@@ -101,8 +101,11 @@ interface Provider {
             AnimeSaturnProvider to ProviderSupport(movies = false, tvShows = true),
             FrenchStreamProvider to ProviderSupport(movies = true, tvShows = true),
             GuardaSerieProvider to ProviderSupport(movies = true, tvShows = true),
+            ToonItaliaProvider to ProviderSupport(movies = true, tvShows = true),
             EinschaltenProvider to ProviderSupport(movies = true, tvShows = false),
             HDFilmeProvider to ProviderSupport(movies = true, tvShows = true),
+            KinoGerProvider to ProviderSupport(movies = true, tvShows = true),
+            KellerKinoProvider to ProviderSupport(movies = true, tvShows = false),
             MEGAKinoProvider to ProviderSupport(movies = true, tvShows = true),
             FilmyOnlineCcProvider to ProviderSupport(movies = true, tvShows = true),
             ZaluknijProvider to ProviderSupport(movies = true, tvShows = true),
@@ -123,11 +126,18 @@ interface Provider {
             PlutoTvUsProvider to ProviderSupport(movies = false, tvShows = true),
             CineCityProvider to ProviderSupport(movies = false, tvShows = true),
             CineHaxProvider to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.DE to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.IT to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.FR to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.ES to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.PL to ProviderSupport(movies = true, tvShows = true),
+            VavooVodProvider.EN to ProviderSupport(movies = true, tvShows = true),
             VavooProvider("de") to ProviderSupport(movies = false, tvShows = true),
             VavooProvider("it") to ProviderSupport(movies = false, tvShows = true),
             VavooProvider("fr") to ProviderSupport(movies = false, tvShows = true),
             VavooProvider("es") to ProviderSupport(movies = false, tvShows = true),
-            VavooProvider("pl") to ProviderSupport(movies = false, tvShows = true)
+            VavooProvider("pl") to ProviderSupport(movies = false, tvShows = true),
+            VavooProvider("en") to ProviderSupport(movies = false, tvShows = true)
         )
 
         // Helper functions to check support

@@ -40,6 +40,9 @@ class Movie(
     override var isFavorite: Boolean = false,
 ) : Show, WatchItem, AppAdapter.Item {
 
+    @Ignore
+    var contentRating: ContentRating? = null
+
     var released = released?.toCalendar()
     var favoritedAtMillis: Long? = null
     var lastPlayedAtMillis: Long? = null
@@ -113,6 +116,7 @@ class Movie(
         isFavorite,
     ).apply {
         lastPlayedAtMillis = this@Movie.lastPlayedAtMillis
+        contentRating = this@Movie.contentRating
     }
 
     override fun equals(other: Any?): Boolean {

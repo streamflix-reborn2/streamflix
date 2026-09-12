@@ -80,6 +80,7 @@ import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.EpisodeManager
 import com.streamflixreborn.streamflix.utils.MediaServer
 import com.streamflixreborn.streamflix.utils.PlayerGestureHelper
+import com.streamflixreborn.streamflix.utils.ContentRatingOverlayPolicy
 import com.streamflixreborn.streamflix.utils.UserPreferences
 import com.streamflixreborn.streamflix.utils.UserDataCache
 import com.streamflixreborn.streamflix.utils.dp
@@ -161,6 +162,11 @@ class PlayerTvFragment : Fragment() {
     private var nextEpisodePrefetchTargetId: String? = null
     private var nextEpisodePrefetchJob: Job? = null
     private var nextEpisodeOverlayDismissed = false
+    private var contentRatingOverlayJob: Job? = null
+    private var observedContentRatingMediaKey: String? = null
+    private var displayedContentRatingMediaKey: String? = null
+    private var introRange: IntroRange? = null
+    private var skipIntroSeekPending = false
     private val chooserReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
@@ -234,6 +240,8 @@ class PlayerTvFragment : Fragment() {
             isSetupDone = true
         }
 
+        if (::player.isInitialized) startProgressHandler()
+
         try {
             val filter = IntentFilter("ACTION_PLAYER_CHOSEN_TV")
             ContextCompat.registerReceiver(
@@ -259,6 +267,7 @@ class PlayerTvFragment : Fragment() {
 
         initializePlayer(false)
         initializeVideo()
+        observeContentRating()
         binding.pvPlayer.onMediaPreviousClicked = ::handleMediaPrevious
         binding.pvPlayer.onMediaNextClicked = ::handleMediaNext
         gestureHelper = PlayerGestureHelper(
@@ -618,6 +627,7 @@ class PlayerTvFragment : Fragment() {
         override fun onDestroyView() {
             super.onDestroyView()
             nextEpisodePrefetchJob?.cancel()
+            contentRatingOverlayJob?.cancel()
             clearBypassSession(dismissDialog = true)
             releasePlayer()
             try {
@@ -626,6 +636,43 @@ class PlayerTvFragment : Fragment() {
             }
             _binding = null
             isSetupDone = false
+        }
+
+        private fun observeContentRating() {
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewModel.contentRating.flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+                    .collect { state ->
+                        if (state is PlayerViewModel.RatingState.Available &&
+                            state.mediaKey == displayedContentRatingMediaKey
+                        ) return@collect
+                        if (state is PlayerViewModel.RatingState.Loading &&
+                            state.mediaKey != observedContentRatingMediaKey
+                        ) {
+                            observedContentRatingMediaKey = state.mediaKey
+                            displayedContentRatingMediaKey = null
+                        }
+                        contentRatingOverlayJob?.cancel()
+                        binding.tvContentRatingBadge.animate().cancel()
+                        when (state) {
+                            is PlayerViewModel.RatingState.Available -> {
+                                observedContentRatingMediaKey = state.mediaKey
+                                displayedContentRatingMediaKey = state.mediaKey
+                                val badge = binding.tvContentRatingBadge
+                                badge.text = state.rating.certification
+                                badge.alpha = 0f
+                                badge.visibility = View.VISIBLE
+                                badge.animate().alpha(1f).setDuration(180L).start()
+                                contentRatingOverlayJob = viewLifecycleOwner.lifecycleScope.launch {
+                                    delay(ContentRatingOverlayPolicy.DISPLAY_DURATION_MS - ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS)
+                                    badge.animate().alpha(0f).setDuration(ContentRatingOverlayPolicy.FADE_OUT_DURATION_MS).withEndAction {
+                                        if (_binding != null) badge.visibility = View.GONE
+                                    }.start()
+                                }
+                            }
+                            else -> binding.tvContentRatingBadge.visibility = View.GONE
+                        }
+                    }
+            }
         }
 
     fun onBackPressed(): Boolean = when {
@@ -842,9 +889,13 @@ class PlayerTvFragment : Fragment() {
                 binding.settings.show()
             }
 
-            binding.pvPlayer.controller.binding.btnSkipIntro.setOnClickListener {
-                player.seekTo(player.currentPosition + 85000)
-                it.visibility = View.GONE
+            binding.btnSkipIntro.setOnClickListener {
+                val range = introRange?.takeIf {
+                    it.isAvailable(player.currentPosition, player.duration)
+                } ?: return@setOnClickListener
+                skipIntroSeekPending = true
+                it.isGone = true
+                player.seekTo(range.seekDestinationMs)
             }
 
             binding.btnNextEpisodeAction.setOnClickListener {
@@ -1035,13 +1086,42 @@ class PlayerTvFragment : Fragment() {
         ) {
             currentVideo = video
             currentServer = server
+            resetIntroRange()
             updatePlayerHeader()
             val extraBuffering = PlayerSettingsView.Settings.ExtraBuffering.isEnabled
             val softwareDecoder = PlayerSettingsView.Settings.SoftwareDecoder.isEnabled
+
+            val vavooTlsHost =
+                if (
+                    UserPreferences.currentProvider
+                        ?.javaClass
+                        ?.simpleName == "VavooProvider"
+                ) {
+                    runCatching {
+                        java.net.URI(video.source).host
+                    }.getOrNull()
+                } else {
+                    null
+                }
+
+            android.util.Log.d(
+                "VavooTLS",
+                "TV displayVideo provider=" +
+                    UserPreferences.currentProvider?.javaClass?.simpleName +
+                    " host=$vavooTlsHost"
+            )
+
             val needsReinit =
-                extraBuffering != currentExtraBuffering || softwareDecoder != currentSoftwareDecoder
+                extraBuffering != currentExtraBuffering ||
+                    softwareDecoder != currentSoftwareDecoder ||
+                    vavooTlsHost != currentVavooTlsHost
+
             if (needsReinit) {
-                initializePlayer(extraBuffering, softwareDecoder)
+                initializePlayer(
+                    extraBuffering,
+                    softwareDecoder,
+                    vavooTlsHost
+                )
                 player.playlistMetadata = MediaMetadata.Builder()
                     .setTitle(resolvePlayerTitle())
                     .setMediaServers(servers.map {
@@ -1212,14 +1292,23 @@ class PlayerTvFragment : Fragment() {
                     updatePlayerScale()
                 }
 
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    skipIntroSeekPending = false
+                    updateSkipIntroButton()
+                }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     binding.pvPlayer.keepScreenOn = isPlaying
 
                     if (isPlaying) {
                         recordRecentlyWatchedStart()
+                    }
+                    if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                         startProgressHandler()
-                    } else {
-                        stopProgressHandler()
                     }
                     val hasUri = player.currentMediaItem?.localConfiguration?.uri
                         ?.toString()?.isNotEmpty()
@@ -1499,15 +1588,15 @@ class PlayerTvFragment : Fragment() {
         }
 
         private fun startProgressHandler() {
-            progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
-            progressRunnable = Runnable {
-                if (player.isPlaying) {
-                    val show = player.currentPosition in 3000..120000
-                    showSkipIntroButton(show)
+            if (!::progressHandler.isInitialized) {
+                progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                progressRunnable = Runnable {
+                    updateSkipIntroButton()
                     updateNextEpisodeOverlay()
+                    progressHandler.postDelayed(progressRunnable, 500)
                 }
-                progressHandler.postDelayed(progressRunnable, 1000)
             }
+            progressHandler.removeCallbacks(progressRunnable)
             progressHandler.post(progressRunnable)
         }
 
@@ -1571,6 +1660,7 @@ class PlayerTvFragment : Fragment() {
         }
 
         private fun showNextEpisodeOverlay(nextEpisode: Video.Type.Episode, remainingMs: Long) {
+            showSkipIntroButton(false)
             updateNextEpisodeOverlayFocusBindings(true)
             binding.tvNextEpisodeMeta.text = getString(
                 R.string.tv_show_item_season_number_episode_number,
@@ -1644,28 +1734,45 @@ class PlayerTvFragment : Fragment() {
             controllerBinding.btnCustomNext.nextFocusDownId = R.id.exo_progress
             controllerBinding.exoPlayPause.nextFocusDownId = R.id.exo_progress
 
-            controllerBinding.btnSkipIntro.nextFocusLeftId = if (overlayVisible) overlayActionId else View.NO_ID
-            controllerBinding.btnSkipIntro.nextFocusUpId = if (overlayVisible) overlayActionId else View.NO_ID
-            controllerBinding.btnSkipIntro.nextFocusDownId = if (overlayVisible) overlayActionId else View.NO_ID
+            binding.btnSkipIntro.nextFocusLeftId = if (overlayVisible) overlayActionId else View.NO_ID
+            binding.btnSkipIntro.nextFocusUpId = if (overlayVisible) overlayActionId else View.NO_ID
+            binding.btnSkipIntro.nextFocusDownId = if (overlayVisible) overlayActionId else View.NO_ID
 
             binding.btnNextEpisodeAction.nextFocusLeftId = overlayDismissId
             binding.btnNextEpisodeAction.nextFocusRightId = overlayDismissId
             binding.btnNextEpisodeAction.nextFocusUpId = controllerBinding.exoPlayPause.id
             binding.btnNextEpisodeAction.nextFocusDownId =
-                if (controllerBinding.btnSkipIntro.isVisible) controllerBinding.btnSkipIntro.id
+                if (binding.btnSkipIntro.isVisible) binding.btnSkipIntro.id
                 else controllerBinding.exoSettings.id
 
             binding.btnNextEpisodeDismiss.nextFocusLeftId = overlayActionId
             binding.btnNextEpisodeDismiss.nextFocusRightId = overlayActionId
             binding.btnNextEpisodeDismiss.nextFocusUpId = controllerBinding.exoPlayPause.id
             binding.btnNextEpisodeDismiss.nextFocusDownId =
-                if (controllerBinding.btnSkipIntro.isVisible) controllerBinding.btnSkipIntro.id
+                if (binding.btnSkipIntro.isVisible) binding.btnSkipIntro.id
                 else controllerBinding.exoSettings.id
         }
 
+        private fun resetIntroRange() {
+            introRange = if (currentVideoTypeForUi() is Video.Type.Episode) IntroRange.DEFAULT else null
+            skipIntroSeekPending = false
+            if (_binding != null) showSkipIntroButton(false)
+        }
+
+        private fun updateSkipIntroButton() {
+            if (_binding == null || !::player.isInitialized) return
+            val range = introRange
+            val position = player.currentPosition
+            if (range == null || position >= range.endMs) skipIntroSeekPending = false
+            showSkipIntroButton(
+                range?.isAvailable(position, player.duration) == true && !skipIntroSeekPending
+            )
+        }
+
         private fun showSkipIntroButton(show: Boolean) {
-            val btnSkipIntro = binding.pvPlayer.controller.binding.btnSkipIntro
-            if (show && btnSkipIntro.isGone) {
+            val btnSkipIntro = binding.btnSkipIntro
+            val shouldShow = show && binding.layoutNextEpisodeOverlay.isGone
+            if (shouldShow && btnSkipIntro.isGone) {
                 val fadeIn = android.view.animation.AnimationUtils.loadAnimation(
                     requireContext(),
                     R.anim.fade_in
@@ -1674,8 +1781,14 @@ class PlayerTvFragment : Fragment() {
                 btnSkipIntro.isVisible = true
                 if (binding.layoutNextEpisodeOverlay.isVisible) {
                     updateNextEpisodeOverlayFocusBindings(true)
+                } else {
+                    val settings = binding.pvPlayer.controller.binding.exoSettings
+                    settings.nextFocusUpId = btnSkipIntro.id
+                    btnSkipIntro.nextFocusUpId = settings.id
                 }
-            } else if (!show && btnSkipIntro.isVisible) {
+            } else if (!shouldShow && btnSkipIntro.isVisible) {
+                if (btnSkipIntro.hasFocus()) binding.pvPlayer.requestFocus()
+                binding.pvPlayer.controller.binding.exoSettings.nextFocusUpId = View.NO_ID
                 val fadeOut = android.view.animation.AnimationUtils.loadAnimation(
                     requireContext(),
                     R.anim.fade_out
@@ -1690,6 +1803,7 @@ class PlayerTvFragment : Fragment() {
 
         private var currentExtraBuffering = false
         private var currentSoftwareDecoder = false
+        private var currentVavooTlsHost: String? = null
 
         private fun buildPlayer(extraBuffering: Boolean): ExoPlayer {
             val loadControl = DefaultLoadControl.Builder()
@@ -1717,14 +1831,36 @@ class PlayerTvFragment : Fragment() {
                 .build()
         }
 
-        private fun initializePlayer(extraBuffering: Boolean, softwareDecoder: Boolean = currentSoftwareDecoder) {
+        private fun initializePlayer(
+            extraBuffering: Boolean,
+            softwareDecoder: Boolean = currentSoftwareDecoder,
+            vavooTlsHost: String? = currentVavooTlsHost
+        ) {
             releasePlayer()
             currentExtraBuffering = extraBuffering
             currentSoftwareDecoder = softwareDecoder
+            currentVavooTlsHost = vavooTlsHost
 
             var tokenLogged = false
-            val okHttpClient = OkHttpClient.Builder()
-                .dns(DnsResolver.doh)
+
+            val okHttpBuilder =
+                OkHttpClient.Builder()
+                    .dns(DnsResolver.doh)
+
+            if (!vavooTlsHost.isNullOrBlank()) {
+                com.streamflixreborn.streamflix.utils.VavooTls
+                    .relaxForHost(
+                        okHttpBuilder,
+                        vavooTlsHost
+                    )
+
+                android.util.Log.d(
+                    "VavooTLS",
+                    "TV TLS exception ACTIVE for host: $vavooTlsHost"
+                )
+            }
+
+            val okHttpClient = okHttpBuilder
                 .addInterceptor { chain ->
                     var request = chain.request()
                     

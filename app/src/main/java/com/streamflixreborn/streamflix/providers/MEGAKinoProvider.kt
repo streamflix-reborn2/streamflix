@@ -30,11 +30,16 @@ import java.util.concurrent.TimeUnit
 
 import MyCookieJar
 import com.streamflixreborn.streamflix.utils.TmdbUtils
+import com.streamflixreborn.streamflix.utils.UserPreferences
 
 object MEGAKinoProvider : Provider {
 
     override val name = "MEGAKino"
-    override val baseUrl = "https://megakino12.com"
+
+    private const val DEFAULT_BASE_URL = "https://megakino12.com"
+
+    override val baseUrl: String
+        get() = UserPreferences.resolveProviderBaseUrl(name, DEFAULT_BASE_URL)
     override val logo = "https://images2.imgbox.com/a2/83/OubSojBq_o.png"
     override val language = "de"
 
@@ -95,7 +100,37 @@ object MEGAKinoProvider : Provider {
         }
     }
 
-    private val service = MEGAKinoService.build(baseUrl)
+    @Volatile
+    private var cachedService: MEGAKinoService? = null
+
+    @Volatile
+    private var cachedServiceBaseUrl: String? = null
+
+    private val service: MEGAKinoService
+        get() {
+            val currentBaseUrl = baseUrl.trimEnd('/') + "/"
+            val currentService = cachedService
+
+            if (currentService != null && cachedServiceBaseUrl == currentBaseUrl) {
+                return currentService
+            }
+
+            return synchronized(this) {
+                val synchronizedService = cachedService
+
+                if (
+                    synchronizedService != null &&
+                    cachedServiceBaseUrl == currentBaseUrl
+                ) {
+                    synchronizedService
+                } else {
+                    MEGAKinoService.build(currentBaseUrl).also {
+                        cachedService = it
+                        cachedServiceBaseUrl = currentBaseUrl
+                    }
+                }
+            }
+        }
 
     private var lastTokenTime = 0L
 

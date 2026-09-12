@@ -38,6 +38,173 @@ object UserPreferences {
     const val PROVIDER_AUTOUPDATE = "AUTOUPDATE_URL"
     const val PROVIDER_NEW_INTERFACE = "NEW_INTERFACE"
     const val PROVIDER_PREFERRED_SERVER = "PREFERRED_SERVER"
+    const val PROVIDER_CUSTOM_DOMAIN = "CUSTOM_DOMAIN"
+
+    private const val DEFAULT_VAVOO_DOMAIN = "https://vavoo.to"
+    private const val DEFAULT_KINOGER_DOMAIN = "https://kinoger.fun"
+    private const val DEFAULT_KELLERKINO_DOMAIN = "https://www.kellerkino.com"
+    private const val KINOGER_CACHE_NAME = "__KINOGER_GLOBAL__"
+    private const val KELLERKINO_CACHE_NAME = "Kellerkino"
+    private const val VAVOO_CACHE_NAME = "__VAVOO_GLOBAL__"
+
+    var vavooDomain: String
+        get() {
+            val stored = providerCache
+                .optJSONObject(VAVOO_CACHE_NAME)
+                ?.optString(PROVIDER_URL)
+                .orEmpty()
+                .trim()
+
+            return normalizeVavooDomain(
+                stored.ifBlank { DEFAULT_VAVOO_DOMAIN }
+            )
+        }
+        set(value) {
+            val normalized = normalizeVavooDomain(value)
+                .ifBlank { DEFAULT_VAVOO_DOMAIN }
+
+            val innerJson = providerCache.optJSONObject(VAVOO_CACHE_NAME)
+                ?: JSONObject().also {
+                    providerCache.put(VAVOO_CACHE_NAME, it)
+                }
+
+            innerJson.put(PROVIDER_URL, normalized)
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+
+    fun resetVavooDomain() {
+        val innerJson = providerCache.optJSONObject(VAVOO_CACHE_NAME)
+        if (innerJson != null) {
+            innerJson.remove(PROVIDER_URL)
+            if (innerJson.length() == 0) {
+                providerCache.remove(VAVOO_CACHE_NAME)
+            }
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+    }
+
+    var kinogerDomain: String
+        get() {
+            val stored = providerCache
+                .optJSONObject(KINOGER_CACHE_NAME)
+                ?.optString(PROVIDER_URL)
+                .orEmpty()
+                .trim()
+
+            return normalizeKinogerDomain(
+                stored.ifBlank { DEFAULT_KINOGER_DOMAIN }
+            )
+        }
+        set(value) {
+            val normalized = normalizeKinogerDomain(value)
+                .ifBlank { DEFAULT_KINOGER_DOMAIN }
+
+            val innerJson = providerCache.optJSONObject(KINOGER_CACHE_NAME)
+                ?: JSONObject().also {
+                    providerCache.put(KINOGER_CACHE_NAME, it)
+                }
+
+            innerJson.put(PROVIDER_URL, normalized)
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+
+    fun resetKinogerDomain() {
+        val innerJson = providerCache.optJSONObject(KINOGER_CACHE_NAME)
+        if (innerJson != null) {
+            innerJson.remove(PROVIDER_URL)
+            if (innerJson.length() == 0) {
+                providerCache.remove(KINOGER_CACHE_NAME)
+            }
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+    }
+
+    var kellerkinoDomain: String
+        get() {
+            val stored = providerCache
+                .optJSONObject(KELLERKINO_CACHE_NAME)
+                ?.optString(PROVIDER_URL)
+                .orEmpty()
+                .trim()
+
+            return normalizeKellerkinoDomain(
+                stored.ifBlank { DEFAULT_KELLERKINO_DOMAIN }
+            )
+        }
+        set(value) {
+            val normalized = normalizeKellerkinoDomain(value)
+                .ifBlank { DEFAULT_KELLERKINO_DOMAIN }
+
+            val innerJson = providerCache.optJSONObject(KELLERKINO_CACHE_NAME)
+                ?: JSONObject().also {
+                    providerCache.put(KELLERKINO_CACHE_NAME, it)
+                }
+
+            innerJson.put(PROVIDER_URL, normalized)
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+
+    fun resetKellerkinoDomain() {
+        val innerJson = providerCache.optJSONObject(KELLERKINO_CACHE_NAME)
+
+        if (innerJson != null) {
+            innerJson.remove(PROVIDER_URL)
+
+            if (innerJson.length() == 0) {
+                providerCache.remove(KELLERKINO_CACHE_NAME)
+            }
+
+            Key.PROVIDER_CACHE.setString(providerCache.toString())
+        }
+    }
+
+    private fun normalizeKellerkinoDomain(value: String): String {
+        var result = value.trim()
+
+        if (result.isBlank()) {
+            return DEFAULT_KELLERKINO_DOMAIN
+        }
+
+        if (!result.startsWith("http://") &&
+            !result.startsWith("https://")
+        ) {
+            result = "https://$result"
+        }
+
+        return result.trimEnd('/')
+    }
+
+    private fun normalizeKinogerDomain(value: String): String {
+        var result = value.trim()
+
+        if (result.isBlank()) {
+            return DEFAULT_KINOGER_DOMAIN
+        }
+
+        if (!result.startsWith("http://") &&
+            !result.startsWith("https://")
+        ) {
+            result = "https://$result"
+        }
+
+        return result.trimEnd('/')
+    }
+
+    private fun normalizeVavooDomain(value: String): String {
+        var result = value.trim()
+
+        if (result.isBlank()) {
+            return DEFAULT_VAVOO_DOMAIN
+        }
+
+        if (!result.startsWith("http://") &&
+            !result.startsWith("https://")
+        ) {
+            result = "https://$result"
+        }
+
+        return result.trimEnd('/')
+    }
 
     lateinit var providerCache: JSONObject
 
@@ -107,6 +274,83 @@ object UserPreferences {
         }
     }
 
+    private fun getProviderCache(providerName: String, key: String): String {
+        return providerCache
+            .optJSONObject(providerName)
+            ?.optString(key)
+            .orEmpty()
+    }
+
+    private fun setProviderCache(providerName: String, key: String, value: String) {
+        val innerJson = providerCache.optJSONObject(providerName)
+            ?: JSONObject().also { providerCache.put(providerName, it) }
+
+        innerJson.put(key, value)
+        Key.PROVIDER_CACHE.setString(providerCache.toString())
+    }
+
+    fun getProviderCustomDomain(providerName: String): String =
+        getProviderCache(providerName, PROVIDER_CUSTOM_DOMAIN)
+
+    fun setProviderCustomDomain(providerName: String, value: String) {
+        setProviderCache(
+            providerName,
+            PROVIDER_CUSTOM_DOMAIN,
+            normalizeProviderDomain(value)
+        )
+    }
+
+    fun resetProviderCustomDomain(providerName: String) {
+        setProviderCache(providerName, PROVIDER_CUSTOM_DOMAIN, "")
+    }
+
+    fun resolveProviderBaseUrl(
+        providerName: String,
+        defaultBaseUrl: String
+    ): String {
+        val customDomain = getProviderCustomDomain(providerName)
+        if (customDomain.isBlank()) return defaultBaseUrl
+
+        return runCatching {
+            val uri = android.net.Uri.parse(defaultBaseUrl)
+            uri.buildUpon()
+                .authority(customDomain)
+                .build()
+                .toString()
+        }.getOrDefault(defaultBaseUrl)
+    }
+
+    fun providerDomainForDisplay(
+        providerName: String,
+        defaultBaseUrl: String
+    ): String {
+        val customDomain = getProviderCustomDomain(providerName)
+        if (customDomain.isNotBlank()) return customDomain
+
+        return runCatching {
+            android.net.Uri.parse(defaultBaseUrl).authority.orEmpty()
+        }.getOrDefault(defaultBaseUrl)
+    }
+
+    private fun normalizeProviderDomain(value: String): String {
+        val trimmed = value.trim().trimEnd('/')
+        if (trimmed.isBlank()) return ""
+
+        val withScheme =
+            if (trimmed.contains("://")) trimmed
+            else "https://$trimmed"
+
+        return runCatching {
+            android.net.Uri.parse(withScheme).authority.orEmpty()
+        }.getOrDefault(trimmed)
+            .ifBlank {
+                trimmed
+                    .removePrefix("https://")
+                    .removePrefix("http://")
+                    .substringBefore('/')
+            }
+    }
+
     var currentLanguage: String?
         get() = Key.CURRENT_LANGUAGE.getString()
         set(value) = Key.CURRENT_LANGUAGE.setString(value)
@@ -174,6 +418,27 @@ object UserPreferences {
             Key.TMDB_API_KEY.setString(value)
             TMDb3.rebuildService()
         }
+    // Configurable TMDb streaming catalog rows
+    var tmdbCatalogProviders: Set<String>
+        get() = Key.TMDB_CATALOG_PROVIDERS.getStringSet()
+            ?: setOf(
+                "netflix",
+                "prime",
+                "disney",
+                "apple",
+                "max",
+                "hulu",
+            )
+        set(value) =
+            Key.TMDB_CATALOG_PROVIDERS.setStringSet(value)
+
+    var tmdbCatalogModes: Set<String>
+        get() =
+            Key.TMDB_CATALOG_MODES.getStringSet()
+                ?: setOf("popular")
+        set(value) =
+            Key.TMDB_CATALOG_MODES.setStringSet(value)
+
     var enableTmdb: Boolean
         get() = Key.ENABLE_TMDB.getBoolean() ?: true
         set(value) {
@@ -556,6 +821,8 @@ object UserPreferences {
         AUTOPLAY_BUFFER,
         SERVER_AUTO_SUBTITLES_DISABLED,
         ENABLE_TMDB,
+        TMDB_CATALOG_PROVIDERS,
+        TMDB_CATALOG_MODES,
         PARENTAL_CONTROL_PIN,
         PARENTAL_CONTROL_ADMIN_PIN,
         PARENTAL_CONTROL_MAX_AGE,

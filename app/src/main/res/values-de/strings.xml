@@ -244,6 +244,12 @@
     <string name="settings_category_network_title">Verbindung und Dienste</string>
     <string name="settings_category_provider_title">Anbietereinstellungen</string>
     <string name="settings_category_provider_url">Haupt-URL</string>
+    <string name="settings_category_provider_domain">Anbieter-Domain</string>
+    <string name="settings_provider_domain">Domain</string>
+    <string name="settings_provider_domain_summary">Domain des Anbieters ändern, wenn die Webseite auf eine neue Adresse wechselt.</string>
+    <string name="settings_provider_domain_reset">Domain zurücksetzen</string>
+    <string name="settings_provider_domain_reset_summary">Die Standard-Domain des Anbieters wiederherstellen.</string>
+    <string name="settings_provider_domain_reset_done">Anbieter-Domain wurde auf den Standard zurückgesetzt.</string>
     <string name="settings_category_provider_update_url">Portal-URL</string>
     <string name="settings_autoupdate">Haupt-URL beim Start aktualisieren</string>
     <string name="settings_autoupdate_on">An</string>
@@ -496,4 +502,31 @@
     <string name="settings_refresh_cache_success">Cache erfolgreich aktualisiert</string>
     <string name="supabase_instructions_title">Anleitung</string>
     <string name="supabase_instructions_summary">Die ausführliche Anleitung zur Einrichtung von Supabase-Konto und Synchronisierung im Browser öffnen</string>
+
+    <string name="settings_provider_vavoo_domain">Vavoo-Domain</string>
+    <string name="settings_provider_vavoo_domain_summary">Basisdomain für Vavoo-Katalog und Wiedergabe ändern</string>
+    <string name="settings_provider_vavoo_domain_reset">Vavoo-Domain zurücksetzen</string>
+
+    <string name="settings_provider_kinoger_domain">KinoGer-Domain</string>
+    <string name="settings_provider_kinoger_domain_summary">Basisdomain für KinoGer ändern</string>
+    <string name="settings_provider_kinoger_domain_reset">KinoGer-Domain zurücksetzen</string>
+
+    <string name="settings_tmdb_streaming_catalogs">TMDb Streaming-Kataloge</string>
+    <string name="settings_tmdb_catalog_modes">Katalog-Reihen</string>
+    <string name="settings_tmdb_catalog_popular">Beliebt</string>
+    <string name="settings_tmdb_catalog_popular_summary">Beliebte Filme und Serien des ausgewählten Anbieters</string>
+    <string name="settings_tmdb_catalog_top">Top bewertet</string>
+    <string name="settings_tmdb_catalog_top_summary">Nach Bewertung sortieren</string>
+    <string name="settings_tmdb_catalog_new">Neueste</string>
+    <string name="settings_tmdb_catalog_new_summary">Neueste Inhalte zuerst</string>
+    <string name="settings_provider_domain_check">Domain prüfen / aktualisieren</string>
+    <string name="settings_provider_domain_check_summary">Weiterleitungen prüfen und eine neue Domain automatisch übernehmen</string>
+    <string name="settings_provider_domain_check_current">Domain ist bereits aktuell</string>
+    <string name="settings_provider_domain_check_updated">Neue Domain übernommen: %1$s</string>
+    <string name="settings_provider_domain_check_failed">Domain-Prüfung fehlgeschlagen: %1$s</string>
+
+    <string name="settings_provider_kellerkino_domain">KellerKino-Domain</string>
+    <string name="settings_provider_kellerkino_domain_summary">Basisdomain für KellerKino ändern</string>
+    <string name="settings_provider_kellerkino_domain_reset">KellerKino-Domain zurücksetzen</string>
+
 </resources>

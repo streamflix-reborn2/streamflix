@@ -35,11 +35,16 @@ import retrofit2.http.GET
 import retrofit2.http.Headers
 import retrofit2.http.Url
 import retrofit2.http.Path
+import com.streamflixreborn.streamflix.utils.UserPreferences
 
 object HDFilmeProvider : Provider {
 
     override val name: String = "HDFilme"
-    override val baseUrl: String = "https://hdfilme.win"
+
+    private const val DEFAULT_BASE_URL = "https://hdfilme.cafe/"
+
+    override val baseUrl: String
+        get() = UserPreferences.resolveProviderBaseUrl(name, DEFAULT_BASE_URL)
     override val logo: String = "$baseUrl/templates/hdfilme/images/apple-touch-icon.png"
     override val language: String = "de"
 
@@ -126,7 +131,37 @@ object HDFilmeProvider : Provider {
 
     }
 
-    private val service = HDFilmeService.build(baseUrl)
+    @Volatile
+    private var cachedService: HDFilmeService? = null
+
+    @Volatile
+    private var cachedServiceBaseUrl: String? = null
+
+    private val service: HDFilmeService
+        get() {
+            val currentBaseUrl = baseUrl.trimEnd('/') + "/"
+            val currentService = cachedService
+
+            if (currentService != null && cachedServiceBaseUrl == currentBaseUrl) {
+                return currentService
+            }
+
+            return synchronized(this) {
+                val synchronizedService = cachedService
+
+                if (
+                    synchronizedService != null &&
+                    cachedServiceBaseUrl == currentBaseUrl
+                ) {
+                    synchronizedService
+                } else {
+                    HDFilmeService.build(currentBaseUrl).also {
+                        cachedService = it
+                        cachedServiceBaseUrl = currentBaseUrl
+                    }
+                }
+            }
+        }
     private data class SitemapEntry(val url: String, val searchableSlug: String)
 
     @Volatile private var sitemapEntries: List<SitemapEntry>? = null

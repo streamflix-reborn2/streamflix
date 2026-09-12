@@ -33,16 +33,55 @@ import retrofit2.http.Path
 import retrofit2.http.Url
 import java.io.File
 import java.util.concurrent.TimeUnit
+import com.streamflixreborn.streamflix.utils.UserPreferences
 
 object FilmPalastProvider : Provider {
 
-    private val BASE_URL = "https://filmpalast.to/"
-    override val baseUrl = BASE_URL
+    private const val DEFAULT_BASE_URL = "https://filmpalast.to/"
+
     override val name = "Filmpalast"
-    override val logo = "$BASE_URL/themes/downloadarchive/images/logo.png"
+
+    override val baseUrl: String
+        get() = UserPreferences.resolveProviderBaseUrl(name, DEFAULT_BASE_URL)
+
+    override val logo: String
+        get() = "${baseUrl.trimEnd('/')}/themes/downloadarchive/images/logo.png"
     override val language = "de"
 
-    private val service = FilmpalastService.build()
+    @Volatile
+    private var cachedService: FilmpalastService? = null
+
+    @Volatile
+    private var cachedServiceBaseUrl: String? = null
+
+    private val service: FilmpalastService
+        get() {
+            val currentBaseUrl = baseUrl.trimEnd('/') + "/"
+            val currentService = cachedService
+
+            if (currentService != null && cachedServiceBaseUrl == currentBaseUrl) {
+                return currentService
+            }
+
+            return synchronized(this) {
+                val synchronizedService = cachedService
+
+                if (
+                    synchronizedService != null &&
+                    cachedServiceBaseUrl == currentBaseUrl
+                ) {
+                    synchronizedService
+                } else {
+                    FilmpalastService.build(currentBaseUrl).also {
+                        cachedService = it
+                        cachedServiceBaseUrl = currentBaseUrl
+                    }
+                }
+            }
+        }
+
+    private fun siteUrl(path: String): String =
+        "${baseUrl.trimEnd('/')}/${path.trimStart('/')}"
 
     override suspend fun getHome(): List<Category> {
         val document = service.getHome()
@@ -54,7 +93,7 @@ object FilmPalastProvider : Provider {
                     val id = href.substringAfterLast("/")
                     val posterSrc = li.select("a img").attr("src")
                     val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                        "https://filmpalast.to$posterSrc"
+                        siteUrl(posterSrc)
                     } else {
                         posterSrc
                     }
@@ -88,7 +127,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -111,7 +150,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -162,7 +201,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -205,11 +244,11 @@ object FilmPalastProvider : Provider {
 
 
     override suspend fun getMovie(id: String): Movie {
-        val relativeId = BASE_URL + "stream/" + id;
+        val relativeId = siteUrl("stream/$id");
         val document = service.getMoviePage(relativeId)
         val title = document.selectFirst("h2")?.text() ?: ""
         val poster = document.selectFirst("img.cover2")?.attr("src")?.let {
-            if (it.startsWith("http")) it else "${BASE_URL.removeSuffix("/")}$it"
+            if (it.startsWith("http")) it else siteUrl(it)
         }
         val description = document.selectFirst("span[itemprop=description]")?.text()
         val rating = document.selectFirst("div#star-rate")?.attr("data-rating")?.toDoubleOrNull()
@@ -245,7 +284,7 @@ object FilmPalastProvider : Provider {
     }
 
     override suspend fun getServers(id: String, videoType: Video.Type): List<Video.Server> {
-        val relativeId = BASE_URL + "stream/" + id;
+        val relativeId = siteUrl("stream/$id");
         val document = service.getMoviePage(relativeId)
         val servers = mutableListOf<Video.Server>()
 
@@ -306,7 +345,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -333,7 +372,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -353,11 +392,11 @@ object FilmPalastProvider : Provider {
     }
 
     override suspend fun getTvShow(id: String): TvShow {
-        val relativeId = BASE_URL + "stream/" + id
+        val relativeId = siteUrl("stream/$id")
         val document = service.getTvShow(relativeId)
         val title = document.selectFirst("h2")?.text() ?: ""
         val poster = document.selectFirst("img.cover2")?.attr("src")?.let {
-            if (it.startsWith("http")) it else "${BASE_URL.removeSuffix("/")}$it"
+            if (it.startsWith("http")) it else siteUrl(it)
         }
         val description = document.selectFirst("span[itemprop=description]")?.text()
         val rating = document.selectFirst("div#star-rate")?.attr("data-rating")?.toDoubleOrNull()
@@ -441,7 +480,7 @@ object FilmPalastProvider : Provider {
 
             val posterSrc = article.selectFirst("a img")?.attr("src").orEmpty()
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -473,7 +512,7 @@ object FilmPalastProvider : Provider {
         val showId = parts[0]
         val seasonNumber = parts[1].toIntOrNull() ?: return emptyList()
         
-        val relativeId = BASE_URL + "stream/" + showId
+        val relativeId = siteUrl("stream/$showId")
         val document = service.getTvShow(relativeId)
         val title = document.selectFirst("h2")?.text() ?: ""
 
@@ -517,11 +556,11 @@ object FilmPalastProvider : Provider {
         return episodes
     }
     override suspend fun getPeople(id: String, page: Int): People {
-        val url = "$BASE_URL/search/title/$id"
+        val url = siteUrl("search/title/$id")
         val document = service.getPeoplePage(url)
         val name = document.selectFirst("h1")?.text() ?: ""
         val image = document.selectFirst("img.cover2")?.attr("src")?.let {
-            if (it.startsWith("http")) it else "${BASE_URL.removeSuffix("/")}$it"
+            if (it.startsWith("http")) it else siteUrl(it)
         }
         
         // Parse filmography (same structure as movies/series)
@@ -531,7 +570,7 @@ object FilmPalastProvider : Provider {
             val posterSrc = article.selectFirst("a img")?.attr("src") ?: ""
 
             val fullPosterUrl = if (posterSrc.startsWith("/")) {
-                "https://filmpalast.to$posterSrc"
+                siteUrl(posterSrc)
             } else {
                 posterSrc
             }
@@ -600,9 +639,9 @@ object FilmPalastProvider : Provider {
                 return clientToReturn
             }
 
-            fun build(): FilmpalastService {
+            fun build(baseUrl: String): FilmpalastService {
                 val client = getOkHttpClient()
-                val retrofit = Retrofit.Builder().baseUrl(BASE_URL)
+                val retrofit = Retrofit.Builder().baseUrl(baseUrl)
                     .addConverterFactory(JsoupConverterFactory.create())
                     .addConverterFactory(GsonConverterFactory.create()).client(client).build()
                 return retrofit.create(FilmpalastService::class.java)
