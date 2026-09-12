@@ -3,7 +3,6 @@ package com.streamflixreborn.streamflix.adapters.viewholders
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -16,7 +15,6 @@ import androidx.core.net.toUri
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.findNavController
-import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
 import com.bumptech.glide.Glide
@@ -210,8 +208,6 @@ class MovieViewHolder(
     }
 
     private fun showSmartTubeVersionDialog(packages: List<String>, trailerUrl: String, shouldSavePreference: Boolean) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val editor = prefs.edit()
         
         val items = packages.map { pkg ->
             if (pkg == SMARTTUBE_STABLE_PACKAGE) context.getString(R.string.smarttube_stable)
@@ -225,7 +221,7 @@ class MovieViewHolder(
                 
                 if (shouldSavePreference) {
                     // Salva la scelta dell'utente se la preferenza principale è "smarttube"
-                    editor.putString(KEY_SMARTTUBE_PACKAGE, selectedPackage).apply()
+                    UserPreferences.setProfilePreferenceString(KEY_SMARTTUBE_PACKAGE, selectedPackage)
                     Log.d(TAG, "SmartTube version saved: $selectedPackage")
                 }
                 
@@ -243,8 +239,7 @@ class MovieViewHolder(
     }
 
     private fun handleSmartTubeSelection(trailerUrl: String, logPrefix: String) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val savedPackage = prefs.getString(KEY_SMARTTUBE_PACKAGE, null)
+        val savedPackage = UserPreferences.getProfilePreferenceString(KEY_SMARTTUBE_PACKAGE)
         val stPackages = getInstalledSmartTubePackages()
 
         Log.d(TAG, "$logPrefix: SmartTube packages found: ${stPackages.size}. Saved package: $savedPackage")
@@ -279,8 +274,7 @@ class MovieViewHolder(
         Log.d(TAG, "$logPrefix: Clicked. Trailer URL: $trailer")
 
         val youtubeIntent = Intent(Intent.ACTION_VIEW, trailer.toUri())
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val preferredPlayer = prefs.getString(KEY_PREFERRED_PLAYER, PLAYER_ASK)
+        val preferredPlayer = UserPreferences.getProfilePreferenceString(KEY_PREFERRED_PLAYER, PLAYER_ASK)
         Log.d(TAG, "$logPrefix: Preferred player from settings: $preferredPlayer")
 
         when (preferredPlayer) {

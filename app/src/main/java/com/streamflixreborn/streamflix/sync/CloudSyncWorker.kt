@@ -8,11 +8,21 @@ class CloudSyncWorker(
     context: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
+    companion object {
+        const val PROFILE_ID = "profile_id"
+        const val USER_ID = "user_id"
+    }
+
     override suspend fun doWork(): Result = try {
-        if (!SupabaseProvider.isConfigured || CloudSyncManager.currentUserId() == null) {
+        val profileId = inputData.getString(PROFILE_ID) ?: return Result.success()
+        val expectedUserId = inputData.getString(USER_ID) ?: return Result.success()
+        if (!SupabaseProvider.isConfigured ||
+            CloudSyncManager.currentUserId(profileId) != expectedUserId ||
+            com.streamflixreborn.streamflix.utils.ProfileManager.activeProfileId != profileId
+        ) {
             Result.success()
         } else {
-            CloudSyncManager.syncNow(applicationContext)
+            CloudSyncManager.syncNow(applicationContext, profileId)
             Result.success()
         }
     } catch (_: Throwable) {

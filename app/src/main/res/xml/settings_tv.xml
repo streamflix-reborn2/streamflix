@@ -331,6 +331,33 @@
     </PreferenceScreen>
 
     <PreferenceScreen
+        android:key="screen_profiles"
+        android:title="@string/settings_screen_profiles_title"
+        android:summary="@string/settings_screen_profiles_summary"
+        android:widgetLayout="@layout/preference_widget_chevron">
+
+        <PreferenceCategory
+            android:title="@string/settings_screen_profiles_title">
+
+            <Preference
+                android:key="key_profile_edit"
+                android:title="@string/profile_edit_btn"
+                android:summary="@string/settings_profile_edit_summary" />
+
+            <Preference
+                android:key="key_profile_manage"
+                android:title="@string/profile_manage_btn"
+                android:summary="@string/settings_profile_manage_summary" />
+
+            <Preference
+                android:key="key_profile_add"
+                android:title="@string/profile_add_btn"
+                android:summary="@string/settings_profile_add_summary" />
+
+        </PreferenceCategory>
+    </PreferenceScreen>
+
+    <PreferenceScreen
         android:key="screen_cloud_sync"
         android:title="@string/cloud_sync_title"
         android:summary="@string/cloud_sync_screen_summary"

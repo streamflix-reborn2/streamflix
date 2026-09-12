@@ -28,6 +28,7 @@
     <string name="providers_choose_title">Seleccionar proveedor</string>
 
     <string name="main_menu_change_provider">Cambiar proveedor</string>
+    <string name="main_menu_change_profile">Cambiar perfil</string>
     <string name="main_menu_search">Buscar</string>
     <string name="main_menu_home">Inicio</string>
     <string name="main_menu_movies">Películas</string>
@@ -505,6 +506,36 @@
     <string name="settings_parental_tmdb_disable_blocked">Debes desbloquear el control parental antes de desactivar TMDB.</string>
     <string name="settings_force_extra_buffer_title">Búfer extra global</string>
     <string name="settings_force_extra_buffer_summary">Activa búfer extra para todos los servidores de forma predeterminada</string>
+    <string name="profile_who_is_watching">¿Quién está viendo?</string>
+    <string name="profile_no_profiles">Aún no hay perfiles</string>
+    <string name="profile_default_name">Predeterminado</string>
+    <string name="profile_current">Perfil actual</string>
+    <string name="profile_add_btn">Añadir Perfil</string>
+    <string name="profile_manage_btn">Gestionar</string>
+    <string name="profile_edit_btn">Editar Perfil</string>
+    <string name="profile_manage_title">Gestionar Perfiles</string>
+    <string name="profile_create_title">Nuevo Perfil</string>
+    <string name="profile_rename_title">Renombrar Perfil</string>
+    <string name="profile_delete_title">Eliminar Perfil</string>
+    <string name="profile_delete_message">¿Estás seguro de que quieres eliminar "%s"?</string>
+    <string name="profile_name_hint">Nombre del perfil</string>
+    <string name="profile_action_switch">Cambiar a este perfil</string>
+    <string name="profile_switch_pin_title">Introducir PIN del perfil</string>
+    <string name="profile_switch_pin_message">Introduce el PIN parental del perfil actual para cambiar de perfil.</string>
+    <string name="profile_action_rename">Renombrar</string>
+    <string name="profile_action_delete">Eliminar</string>
+    <string name="profile_created">Perfil creado</string>
+    <string name="profile_renamed">Perfil renombrado</string>
+    <string name="profile_deleted">Perfil eliminado</string>
+    <string name="profile_delete_error">No se puede eliminar el perfil</string>
+    <string name="profile_delete_default_error">No se puede eliminar el perfil predeterminado</string>
+    <string name="profile_import_warning_title">Importación entre Perfiles</string>
+    <string name="profile_import_warning_message">Estos datos fueron exportados del perfil "%1$s". Se importarán al perfil actual "%2$s". Los datos del perfil actual serán sobrescritos. ¿Continuar?</string>
+    <string name="settings_screen_profiles_title">Perfiles</string>
+    <string name="settings_screen_profiles_summary">Gestionar perfiles de usuario y sus datos</string>
+    <string name="settings_profile_edit_summary">Renombrar el perfil actual</string>
+    <string name="settings_profile_manage_summary">Ver, renombrar o eliminar perfiles</string>
+    <string name="settings_profile_add_summary">Crear un nuevo perfil</string>
     <string name="supabase_instructions_title">Instrucciones</string>
     <string name="supabase_instructions_summary">Abrir en el navegador la guía detallada para configurar la cuenta y la sincronización de Supabase</string>
 </resources>

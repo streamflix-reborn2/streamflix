@@ -31,7 +31,6 @@ import com.streamflixreborn.streamflix.databinding.*
 import com.streamflixreborn.streamflix.fragments.home.HomeTvFragment
 import com.streamflixreborn.streamflix.fragments.home.HomeTvFragmentDirections
 import androidx.core.content.ContextCompat
-import androidx.preference.PreferenceManager
 import android.app.AlertDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -456,8 +455,6 @@ class TvShowViewHolder(
     }
 
     private fun showSmartTubeVersionDialog(packages: List<String>, trailerUrl: String, shouldSavePreference: Boolean) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val editor = prefs.edit()
 
         val items = packages.map { pkg ->
             if (pkg == "org.smarttube.stable") context.getString(R.string.smarttube_stable)
@@ -470,7 +467,7 @@ class TvShowViewHolder(
                 val selectedPackage = packages[which]
 
                 if (shouldSavePreference) {
-                    editor.putString("preferred_smarttube_package", selectedPackage).apply()
+                    UserPreferences.setProfilePreferenceString("preferred_smarttube_package", selectedPackage)
                 }
 
                 launchSmartTube(selectedPackage, trailerUrl)
@@ -478,8 +475,7 @@ class TvShowViewHolder(
     }
 
     private fun handleSmartTubeSelection(trailerUrl: String) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val savedPackage = prefs.getString("preferred_smarttube_package", null)
+        val savedPackage = UserPreferences.getProfilePreferenceString("preferred_smarttube_package")
         val stPackages = getInstalledSmartTubePackages()
 
         if (stPackages.isEmpty()) {
@@ -510,8 +506,7 @@ class TvShowViewHolder(
 
     private fun handleTrailerClick(trailer: String) {
         val youtubeIntent = Intent(Intent.ACTION_VIEW, trailer.toUri())
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val preferredPlayer = prefs.getString("preferred_player", "ask")
+        val preferredPlayer = UserPreferences.getProfilePreferenceString("preferred_player", "ask")
 
         when (preferredPlayer) {
             "smarttube" -> {

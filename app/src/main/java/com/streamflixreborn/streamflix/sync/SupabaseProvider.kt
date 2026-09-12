@@ -3,6 +3,7 @@ package com.streamflixreborn.streamflix.sync
 import android.content.Context
 import android.net.Uri
 import com.streamflixreborn.streamflix.StreamFlixApp
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.SettingsSessionManager
@@ -19,18 +20,26 @@ object SupabaseProvider {
     private const val SESSION_KEY = "streamflix_supabase_session"
     private val clientsMutex = Mutex()
 
-    @Volatile
-    private var clientInstance: SupabaseClient? = null
-    @Volatile
-    private var clientFingerprint: String? = null
+    private data class ProfileClient(
+        val fingerprint: String,
+        val client: SupabaseClient,
+    )
+
+    private val clients = mutableMapOf<String, ProfileClient>()
 
     val isConfigured: Boolean
         get() = readConfig(StreamFlixApp.instance)?.let { it.first.isNotEmpty() } == true
 
-    val client: SupabaseClient
-        get() = clientInstance ?: error("Supabase has not been initialized")
+    fun clientOrNull(profileId: String): SupabaseClient? = clients[profileId]?.client
 
-    fun activeClientOrNull(): SupabaseClient? = clientInstance
+    @Deprecated("Use clientFor with an explicit profile ID")
+    val client: SupabaseClient
+        get() = clientOrNull(ProfileManager.activeProfileId ?: "default")
+            ?: error("Supabase has not been initialized for the active profile")
+
+    @Deprecated("Use clientOrNull with an explicit profile ID")
+    fun activeClientOrNull(): SupabaseClient? =
+        clientOrNull(ProfileManager.activeProfileId ?: "default")
 
     fun configured(context: Context): Boolean = readConfig(context) != null
 
@@ -50,39 +59,63 @@ object SupabaseProvider {
             .putString(URL_KEY, normalizedUrl)
             .putString(PUBLIC_KEY, publicKey.trim())
             .apply()
-        clientInstance = null
-        clientFingerprint = null
+        kotlinx.coroutines.runBlocking {
+            CloudRealtimeSync.stop()
+            clientsMutex.withLock {
+                clients.values.forEach { runCatching { it.client.close() } }
+                clients.clear()
+            }
+        }
     }
 
-    suspend fun initialize(context: Context) {
+    suspend fun clientFor(context: Context, profileId: String): SupabaseClient {
         val config = readConfig(context)
-            ?: return
+            ?: error("Configure Supabase in Settings > Account & sync before signing in")
         val fingerprint = config.first + "\u0000" + config.second
-        clientInstance?.takeIf { clientFingerprint == fingerprint }?.let { return }
-        clientsMutex.withLock {
-            clientInstance?.takeIf { clientFingerprint == fingerprint }?.let { return@withLock }
-            createSupabaseClient(
+        clients[profileId]?.takeIf { it.fingerprint == fingerprint }?.let { return it.client }
+        return clientsMutex.withLock {
+            clients[profileId]?.takeIf { it.fingerprint == fingerprint }?.let { return@withLock it.client }
+            val client = createSupabaseClient(
                 supabaseUrl = config.first,
                 supabaseKey = config.second,
             ) {
                 install(Auth) {
                     sessionManager = SettingsSessionManager(
-                        key = "$SESSION_KEY-${fingerprint.hashCode()}",
+                        key = sessionKey(profileId, fingerprint),
                     )
                 }
                 install(Postgrest)
                 install(Realtime)
-            }.also {
-                clientInstance = it
-                clientFingerprint = fingerprint
             }
+            clients[profileId] = ProfileClient(fingerprint, client)
+            client
+        }
+    }
+
+    /**
+     * Initializes the active profile when a connection has been configured.
+     *
+     * Startup is allowed to run without Supabase. Callers that explicitly need
+     * Supabase should continue to use [clientFor], which reports the actionable
+     * configuration error.
+     */
+    suspend fun initialize(context: Context): SupabaseClient? {
+        if (readConfig(context) == null) return null
+        return clientFor(context, ProfileManager.activeProfileId ?: "default")
+    }
+
+    suspend fun removeProfile(profileId: String) {
+        clientsMutex.withLock {
+            clients.remove(profileId)?.client?.let { runCatching { it.close() } }
         }
     }
 
     suspend fun clearConfig(context: Context) {
-        clientInstance?.close()
-        clientInstance = null
-        clientFingerprint = null
+        CloudRealtimeSync.stop()
+        clientsMutex.withLock {
+            clients.values.forEach { runCatching { it.client.close() } }
+            clients.clear()
+        }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .clear()
@@ -101,5 +134,10 @@ object SupabaseProvider {
         val parsed = raw?.trim()?.let(Uri::parse) ?: return null
         if (parsed.scheme != "https" || parsed.host.isNullOrBlank()) return null
         return raw.trim().trimEnd('/')
+    }
+
+    private fun sessionKey(profileId: String, fingerprint: String): String {
+        val legacy = "$SESSION_KEY-${fingerprint.hashCode()}"
+        return if (profileId == "default") legacy else "$legacy-$profileId"
     }
 }

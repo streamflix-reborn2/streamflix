@@ -28,15 +28,19 @@ object CloudRealtimeSync {
     private val lifecycleMutex = Mutex()
 
     private var activeUserId: String? = null
+    private var activeProfileId: String? = null
+    private var activeClient: io.github.jan.supabase.SupabaseClient? = null
     private var channel: RealtimeChannel? = null
     private var collectorJob: Job? = null
 
-    suspend fun start(context: Context, userId: String) {
+    fun isOwnedBy(profileId: String): Boolean = activeProfileId == profileId
+
+    suspend fun start(context: Context, profileId: String, userId: String) {
         if (!SupabaseProvider.isConfigured) return
         val appContext = context.applicationContext
 
         lifecycleMutex.withLock {
-            if (activeUserId == userId &&
+            if (activeProfileId == profileId && activeUserId == userId &&
                 channel?.status?.value == RealtimeChannel.Status.SUBSCRIBED
             ) {
                 return@withLock
@@ -44,8 +48,9 @@ object CloudRealtimeSync {
 
             stopLocked()
 
-            val newChannel = SupabaseProvider.client.realtime.channel(
-                "user-media-state-$userId",
+            val client = SupabaseProvider.clientFor(appContext, profileId)
+            val newChannel = client.realtime.channel(
+                "user-media-state-$profileId-$userId",
             )
             val changes = newChannel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = TABLE
@@ -62,7 +67,7 @@ object CloudRealtimeSync {
                         else -> null
                     }
                     if (state != null) {
-                        CloudSyncManager.applyRealtimeState(appContext, state)
+                        CloudSyncManager.applyRealtimeState(appContext, profileId, state)
                     }
                 }
                 .catch { error ->
@@ -73,14 +78,16 @@ object CloudRealtimeSync {
 
             try {
                 newChannel.subscribe(blockUntilSubscribed = true)
+                activeProfileId = profileId
                 activeUserId = userId
+                activeClient = client
                 channel = newChannel
                 collectorJob = newCollector
                 Log.i(TAG, "Listening for media changes")
             } catch (error: Throwable) {
                 newCollector.cancel()
                 runCatching {
-                    SupabaseProvider.client.realtime.removeChannel(newChannel)
+                    client.realtime.removeChannel(newChannel)
                 }
                 Log.w(TAG, "Could not start realtime media synchronization", error)
             }
@@ -96,14 +103,17 @@ object CloudRealtimeSync {
     private suspend fun stopLocked() {
         collectorJob?.cancelAndJoin()
         collectorJob = null
+        val client = activeClient
         channel?.let { existingChannel ->
             runCatching {
-                SupabaseProvider.client.realtime.removeChannel(existingChannel)
+                client?.realtime?.removeChannel(existingChannel)
             }.onFailure { error ->
                 Log.w(TAG, "Could not stop realtime media synchronization", error)
             }
         }
         channel = null
+        activeClient = null
+        activeProfileId = null
         activeUserId = null
     }
 }

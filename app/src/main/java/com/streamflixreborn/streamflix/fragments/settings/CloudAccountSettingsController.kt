@@ -17,6 +17,7 @@ import com.streamflixreborn.streamflix.R
 import com.streamflixreborn.streamflix.sync.CloudSyncManager
 import com.streamflixreborn.streamflix.sync.CloudSyncProgress
 import com.streamflixreborn.streamflix.sync.SupabaseProvider
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -31,12 +32,18 @@ object CloudAccountSettingsController {
         val signUp = findPreference("cloud_sign_up")
         val signOut = findPreference("cloud_sign_out")
         val syncNow = findPreference("cloud_sync_now")
+        val profileId = ProfileManager.activeProfileId ?: "default"
+        val profileName = ProfileManager.activeProfile?.name ?: profileId
 
         fun refresh() {
-            val email = CloudSyncManager.currentUserEmail()
-            status.summary = email?.let {
+            val email = CloudSyncManager.currentUserEmail(profileId)
+            val accountSummary = email?.let {
                 fragment.getString(R.string.cloud_sync_signed_in_as, it)
             } ?: fragment.getString(R.string.cloud_sync_signed_out)
+            status.summary = fragment.getString(
+                R.string.cloud_sync_active_profile,
+                profileName,
+            ) + " · " + accountSummary
             signIn?.isVisible = email == null
             signUp?.isVisible = email == null
             signOut?.isVisible = email != null
@@ -94,6 +101,10 @@ object CloudAccountSettingsController {
             true
         }
 
+        scope.launch {
+            runCatching { CloudSyncManager.initialize(fragment.requireContext()) }
+            if (fragment.isAdded && ProfileManager.activeProfileId == profileId) refresh()
+        }
         refresh()
     }
 

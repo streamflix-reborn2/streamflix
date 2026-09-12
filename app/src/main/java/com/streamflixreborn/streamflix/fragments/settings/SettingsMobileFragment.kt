@@ -23,7 +23,6 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreference
 import androidx.preference.SwitchPreferenceCompat
@@ -45,6 +44,10 @@ import com.streamflixreborn.streamflix.providers.StreamingCommunityProvider
 import com.streamflixreborn.streamflix.providers.TmdbProvider
 import com.streamflixreborn.streamflix.utils.AppLanguageManager
 import com.streamflixreborn.streamflix.utils.DnsResolver
+import kotlin.coroutines.suspendCoroutine
+import com.streamflixreborn.streamflix.utils.ProfileColorPicker
+import com.streamflixreborn.streamflix.utils.ProfileManager
+import com.streamflixreborn.streamflix.utils.ProfileSwitchPinGuard
 import com.streamflixreborn.streamflix.utils.ProviderChangeNotifier
 import com.streamflixreborn.streamflix.utils.ThemeManager
 import com.streamflixreborn.streamflix.utils.UserDataCache
@@ -56,6 +59,7 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.coroutines.resume
 
 class SettingsMobileFragment : PreferenceFragmentCompat() {
     private data class SettingsScreenState(
@@ -222,6 +226,9 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
     }
 
     private fun renderCurrentScreen() {
+        getPreferenceManager().setSharedPreferencesName(
+            ProfileManager.profilePreferencesName(ProfileManager.activeProfileId ?: "default")
+        )
         setPreferencesFromResource(R.xml.settings_mobile, currentScreenState.rootKey)
         if (::backupRestoreManager.isInitialized) {
             displaySettings()
@@ -519,9 +526,10 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         }
 
         findPreference<SwitchPreference>("UPDATE_CHECK_ENABLED")?.isChecked = UserPreferences.updateCheckEnabled
-        findPreference<SwitchPreference>("UPDATE_CHECK_ENABLED")?.setOnPreferenceChangeListener { _, newValue ->
+        findPreference<SwitchPreference>("UPDATE_CHECK_ENABLED")?.setOnPreferenceChangeListener { preference, newValue ->
             UserPreferences.updateCheckEnabled = newValue as Boolean
-            true
+            (preference as SwitchPreference).isChecked = newValue
+            false
         }
 
         findPreference<SwitchPreference>("SERVER_AUTO_SUBTITLES_DISABLED")?.apply {
@@ -790,10 +798,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         }
 
         findPreference<Preference>("preferred_player_reset")?.setOnPreferenceClickListener {
-            PreferenceManager.getDefaultSharedPreferences(requireContext())
-                .edit()
-                .remove("preferred_smarttube_package")
-                .apply()
+            UserPreferences.removeProfilePreference("preferred_smarttube_package")
             Toast.makeText(requireContext(), R.string.settings_trailer_player_reset, Toast.LENGTH_SHORT).show()
             true
         }
@@ -832,6 +837,22 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
             importDbBackupLauncher.launch(arrayOf("application/zip"))
             true
         }
+
+        findPreference<Preference>("key_profile_edit")?.setOnPreferenceClickListener {
+            val active = ProfileManager.activeProfile
+            if (active != null) showRenameProfileDialog(active)
+            true
+        }
+
+        findPreference<Preference>("key_profile_manage")?.setOnPreferenceClickListener {
+            showProfileManagementDialog()
+            true
+        }
+
+        findPreference<Preference>("key_profile_add")?.setOnPreferenceClickListener {
+            showCreateProfileDialog()
+            true
+        }
     }
 
     private fun updateOverviewLabels() {
@@ -851,6 +872,9 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         findPreference<PreferenceCategory>("pc_provider_empty_state")?.title = providerName?.let {
             getString(R.string.settings_provider_connection_category_title, it)
         } ?: getString(R.string.settings_provider_connection_title)
+
+        findPreference<Preference>("key_profile_edit")?.summary =
+            ProfileManager.activeProfile?.name ?: getString(R.string.profile_edit_btn)
     }
 
     private fun updateProviderVisibilityState() {
@@ -926,14 +950,20 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         }
 
         removePinPreference?.setOnPreferenceClickListener {
-            changeParentalSettingWithPinCheck {
-                UserPreferences.parentalControlPin = ""
-                UserPreferences.parentalControlMaxAge = null
-                maxAgePreference?.value = ""
-                UserPreferences.unlockParentalControls()
-                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
-                ProviderChangeNotifier.notifyProviderChanged()
-                updateParentalControlPreferenceState()
+            val removePin = {
+                if (UserPreferences.saveParentalControlPin("")) {
+                    UserPreferences.parentalControlMaxAge = null
+                    maxAgePreference?.value = ""
+                    UserPreferences.unlockParentalControls()
+                    Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
+                    ProviderChangeNotifier.notifyProviderChanged()
+                    updateParentalControlPreferenceState()
+                }
+            }
+            if (UserPreferences.parentalControlAdminPin.isNotBlank()) {
+                changeAdminSettingWithPinCheck(removePin)
+            } else {
+                changeParentalSettingWithPinCheck(removePin)
             }
             true
         }
@@ -996,7 +1026,6 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
 
         pinPreference?.apply {
             isEnabled = tmdbEnabled && !isLocked
-            text = ""
             summary = when {
                 !tmdbEnabled -> getString(R.string.settings_parental_requires_tmdb)
                 UserPreferences.parentalControlHardLocked -> getString(R.string.settings_parental_locked_hard)
@@ -1011,7 +1040,6 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
 
         adminPinPreference?.apply {
             isEnabled = tmdbEnabled
-            text = ""
             summary = when {
                 !tmdbEnabled -> getString(R.string.settings_parental_requires_tmdb)
                 UserPreferences.parentalControlAdminPin.isBlank() -> getString(R.string.settings_parental_admin_pin_not_set)
@@ -1149,7 +1177,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
             return
         }
 
-        changeParentalSettingWithPinCheck {
+        val showEditor = {
             promptForPinValue(
                 titleRes = R.string.settings_parental_pin_title,
                 messageRes = if (UserPreferences.parentalControlPin.isBlank()) {
@@ -1161,26 +1189,33 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
                 onSubmit = { newPin ->
                     when {
                         newPin.isBlank() -> {
-                            UserPreferences.parentalControlPin = ""
-                            UserPreferences.parentalControlMaxAge = null
-                            maxAgePreference?.value = ""
-                            UserPreferences.unlockParentalControls()
-                            Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
-                            ProviderChangeNotifier.notifyProviderChanged()
-                            updateParentalControlPreferenceState()
+                            if (UserPreferences.saveParentalControlPin("")) {
+                                UserPreferences.parentalControlMaxAge = null
+                                maxAgePreference?.value = ""
+                                UserPreferences.unlockParentalControls()
+                                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
+                                ProviderChangeNotifier.notifyProviderChanged()
+                                updateParentalControlPreferenceState()
+                            }
                             null
                         }
                         newPin.length < 4 -> getString(R.string.settings_parental_pin_too_short)
                         else -> {
-                            UserPreferences.parentalControlPin = newPin
-                            Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_saved), Toast.LENGTH_SHORT).show()
-                            ProviderChangeNotifier.notifyProviderChanged()
-                            updateParentalControlPreferenceState()
+                            if (UserPreferences.saveParentalControlPin(newPin)) {
+                                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_saved), Toast.LENGTH_SHORT).show()
+                                ProviderChangeNotifier.notifyProviderChanged()
+                                updateParentalControlPreferenceState()
+                            }
                             null
                         }
                     }
                 }
             )
+        }
+        if (UserPreferences.parentalControlAdminPin.isNotBlank()) {
+            changeAdminSettingWithPinCheck(showEditor)
+        } else {
+            changeParentalSettingWithPinCheck(showEditor)
         }
     }
 
@@ -1296,6 +1331,154 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         dialog.show()
     }
 
+    private fun showProfileManagementDialog() {
+        lifecycleScope.launch {
+            val profiles = ProfileManager.getAllProfiles()
+            val profileNames = profiles.map { it.name }.toTypedArray()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.profile_manage_title)
+                .setItems(profileNames) { _, which ->
+                    if (which < profiles.size) {
+                        showProfileActionsDialog(profiles[which], profiles.size)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun showProfileActionsDialog(profile: com.streamflixreborn.streamflix.models.Profile, profileCount: Int = 1) {
+        val items = mutableListOf<String>().apply {
+            add(getString(R.string.profile_action_switch))
+            add(getString(R.string.profile_action_rename))
+            add(getString(R.string.profile_action_color))
+            if (profileCount > 1) {
+                add(getString(R.string.profile_action_delete))
+            }
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(profile.name)
+            .setItems(items.toTypedArray()) { _, which ->
+                when (items[which]) {
+                    getString(R.string.profile_action_switch) -> {
+                        if (profile.id == ProfileManager.activeProfileId) {
+                            switchProfileFromSettings(profile)
+                        } else {
+                            ProfileSwitchPinGuard.verifyCurrentProfile(requireContext()) {
+                                switchProfileFromSettings(profile)
+                            }
+                        }
+                    }
+                    getString(R.string.profile_action_rename) -> showRenameProfileDialog(profile)
+                    getString(R.string.profile_action_color) -> showProfileColorDialog(profile)
+                    getString(R.string.profile_action_delete) -> showDeleteProfileDialog(profile)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun switchProfileFromSettings(profile: com.streamflixreborn.streamflix.models.Profile) {
+        if (!isAdded) return
+        val oldProfileId = ProfileManager.activeProfileId
+        val oldLang = oldProfileId?.let { AppLanguageManager.getProfileLanguage(requireContext(), it) }
+        val oldTheme = UserPreferences.selectedTheme
+        lifecycleScope.launch {
+            ProfileManager.switchToProfile(profile.id)
+            val newLang = AppLanguageManager.getProfileLanguage(requireContext(), profile.id)
+            val newTheme = UserPreferences.selectedTheme
+            if (newLang != (oldLang ?: AppLanguageManager.SYSTEM_LANGUAGE) || newTheme != oldTheme) {
+                requireActivity().apply {
+                    finish()
+                    startActivity(Intent(this, this::class.java))
+                }
+            } else {
+                (requireActivity() as? MainMobileActivity)?.recreateProviderHome()
+            }
+        }
+    }
+
+    private fun showCreateProfileDialog() {
+        val input = android.widget.EditText(requireContext()).apply {
+            hint = getString(R.string.profile_name_hint)
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_create_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotBlank()) {
+                    lifecycleScope.launch {
+                        ProfileManager.createProfile(name)
+                        Toast.makeText(requireContext(), R.string.profile_created, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showRenameProfileDialog(profile: com.streamflixreborn.streamflix.models.Profile) {
+        val input = android.widget.EditText(requireContext()).apply {
+            setText(profile.name)
+            hint = getString(R.string.profile_name_hint)
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_rename_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotBlank()) {
+                    lifecycleScope.launch {
+                        ProfileManager.renameProfile(profile.id, newName)
+                        Toast.makeText(requireContext(), R.string.profile_renamed, Toast.LENGTH_SHORT).show()
+                        updateOverviewLabels()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showProfileColorDialog(profile: com.streamflixreborn.streamflix.models.Profile) {
+        ProfileColorPicker.show(requireContext(), profile.avatarColor) { color ->
+            lifecycleScope.launch {
+                if (ProfileManager.setProfileColor(profile.id, color)) {
+                    Toast.makeText(requireContext(), R.string.profile_color_changed, Toast.LENGTH_SHORT).show()
+                    if (profile.id == ProfileManager.activeProfileId) requireActivity().recreate()
+                }
+            }
+        }
+    }
+
+    private fun showDeleteProfileDialog(profile: com.streamflixreborn.streamflix.models.Profile) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_delete_title)
+            .setMessage(getString(R.string.profile_delete_message, profile.name))
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                lifecycleScope.launch {
+                    val success = ProfileManager.deleteProfile(profile.id)
+                    if (success) {
+                        Toast.makeText(requireContext(), R.string.profile_deleted, Toast.LENGTH_SHORT).show()
+                        if (ProfileManager.activeProfile?.id == profile.id) {
+                            requireActivity().apply {
+                                finish()
+                                startActivity(Intent(this, this::class.java))
+                            }
+                        }
+                    } else {
+                        Toast.makeText(requireContext(), R.string.profile_delete_error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun lockRemainingMinutes(): Int {
         val millis = UserPreferences.parentalControlLockRemainingMillis
         return ((millis + 60_000L - 1L) / 60_000L).toInt().coerceAtLeast(1)
@@ -1335,6 +1518,27 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
                     stringBuilder.toString()
                 }
                 if (jsonData.isNotBlank()) {
+                    val metadata = withContext(Dispatchers.IO) {
+                        backupRestoreManager.parseExportMetadata(jsonData)
+                    }
+
+                    val activeProfile = ProfileManager.activeProfile
+                    if (metadata != null && metadata.profileId != null && activeProfile != null
+                        && metadata.profileId != activeProfile.id
+                    ) {
+                        val shouldContinue = withContext(Dispatchers.Main) {
+                            suspendCoroutine { cont ->
+                                AlertDialog.Builder(requireContext())
+                                    .setTitle(R.string.profile_import_warning_title)
+                                    .setMessage(getString(R.string.profile_import_warning_message, metadata.profileName ?: metadata.profileId, activeProfile.name))
+                                    .setPositiveButton(android.R.string.ok) { _, _ -> cont.resume(true) }
+                                    .setNegativeButton(android.R.string.cancel) { _, _ -> cont.resume(false) }
+                                    .show()
+                            }
+                        }
+                        if (!shouldContinue) return@withBackupLoading
+                    }
+
                     val success = withContext(Dispatchers.IO) {
                         backupRestoreManager.importUserData(jsonData)
                     }

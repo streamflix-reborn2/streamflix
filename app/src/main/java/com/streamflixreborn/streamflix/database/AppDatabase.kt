@@ -15,6 +15,7 @@ import com.streamflixreborn.streamflix.models.Episode
 import com.streamflixreborn.streamflix.models.Movie
 import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
+import com.streamflixreborn.streamflix.utils.ProfileManager
 import com.streamflixreborn.streamflix.utils.UserPreferences
 
 @Database(
@@ -45,7 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var currentProviderName: String? = null
 
-        private fun sanitizeProviderName(name: String): String {
+        fun sanitizeDatabasePart(name: String): String {
             // Rimuove caratteri non validi per i nomi dei file DB, 
             // come spazi, parentesi, e li converte in lowercase.
             return name.lowercase()
@@ -54,8 +55,15 @@ abstract class AppDatabase : RoomDatabase() {
                 .trim('_') // Rimuove underscore iniziale/finale
         }
 
-        fun databaseNameFor(providerName: String): String =
-            "${sanitizeProviderName(providerName)}.db"
+        fun databaseNameFor(providerName: String, profileId: String? = ProfileManager.activeProfileId): String {
+            val sanitizedName = sanitizeDatabasePart(providerName)
+            val profilePrefix = sanitizeDatabasePart(profileId ?: "default")
+            return "${profilePrefix}_$sanitizedName.db"
+        }
+
+        fun legacyDatabaseNameFor(providerName: String): String {
+            return "${sanitizeDatabasePart(providerName)}.db"
+        }
 
         fun setup(context: Context) {
             if (UserPreferences.currentProvider == null) return
@@ -88,16 +96,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        fun getInstanceForProvider(providerName: String, context: Context): AppDatabase {
-            return buildDatabase(providerName, context)
+        fun getInstanceForProvider(
+            providerName: String,
+            context: Context,
+            profileId: String? = ProfileManager.activeProfileId,
+        ): AppDatabase {
+            return buildDatabase(providerName, context, profileId)
         }
 
-        private fun buildDatabase(providerName: String, context: Context): AppDatabase {
-            val sanitizedName = sanitizeProviderName(providerName)
+        private fun buildDatabase(
+            providerName: String,
+            context: Context,
+            profileId: String? = ProfileManager.activeProfileId,
+        ): AppDatabase {
             return Room.databaseBuilder(
                 context = context.applicationContext,
                 klass = AppDatabase::class.java,
-                name = "$sanitizedName.db"
+                name = databaseNameFor(providerName, profileId)
             )
                 .allowMainThreadQueries()
                 .addMigrations(MIGRATION_1_2)

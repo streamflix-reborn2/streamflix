@@ -6,34 +6,35 @@
     android:layout_height="match_parent"
     tools:context=".fragments.home.HomeTvFragment">
 
-    <ImageView
-        android:id="@+id/iv_home_background"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:foreground="?attr/home_gradient_drawable"
-        android:scaleType="centerCrop"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0"
-        tools:ignore="ContentDescription" />
+<ImageView
+    android:id="@+id/iv_home_background"
+    android:layout_width="0dp"
+    android:layout_height="0dp"
+    android:foreground="?attr/home_gradient_drawable"
+    android:scaleType="centerCrop"
+    app:layout_constraintBottom_toBottomOf="parent"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintHorizontal_bias="0.0"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toTopOf="parent"
+    app:layout_constraintVertical_bias="0.0"
+    tools:ignore="ContentDescription" />
 
-    <androidx.leanback.widget.VerticalGridView
-        android:id="@+id/vgv_home"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:clipChildren="false"
-        android:clipToPadding="false"
-        android:paddingTop="16dp"
-        android:paddingBottom="16dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        tools:itemCount="1"
-        tools:listitem="@layout/content_category_swiper_tv" />
+<androidx.leanback.widget.VerticalGridView
+    android:id="@+id/vgv_home"
+    android:layout_width="0dp"
+    android:layout_height="0dp"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:nextFocusLeft="@id/fl_header_profile_avatar"
+    android:paddingTop="16dp"
+    android:paddingBottom="16dp"
+    app:layout_constraintBottom_toBottomOf="parent"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toTopOf="parent"
+    tools:itemCount="1"
+    tools:listitem="@layout/content_category_swiper_tv" />
 
     <include
         android:id="@+id/is_loading"

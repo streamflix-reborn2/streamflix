@@ -35,7 +35,6 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
-import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreference
@@ -64,6 +63,10 @@ import com.streamflixreborn.streamflix.utils.AppLanguageManager
 import com.streamflixreborn.streamflix.utils.DnsResolver
 import com.streamflixreborn.streamflix.utils.ProviderChangeNotifier
 import com.streamflixreborn.streamflix.utils.QrUtils
+import com.streamflixreborn.streamflix.models.Profile
+import com.streamflixreborn.streamflix.utils.ProfileColorPicker
+import com.streamflixreborn.streamflix.utils.ProfileManager
+import com.streamflixreborn.streamflix.utils.ProfileSwitchPinGuard
 import com.streamflixreborn.streamflix.utils.ThemeManager
 import com.streamflixreborn.streamflix.utils.UserDataCache
 import com.streamflixreborn.streamflix.utils.UserPreferences
@@ -220,6 +223,9 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
     }
 
     private fun renderCurrentScreen() {
+        getPreferenceManager().setSharedPreferencesName(
+            ProfileManager.profilePreferencesName(ProfileManager.activeProfileId ?: "default")
+        )
         setPreferencesFromResource(R.xml.settings_tv, currentScreenState.rootKey)
         if (::backupRestoreManager.isInitialized) {
             displaySettings()
@@ -546,9 +552,10 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
 
         findPreference<SwitchPreference>("UPDATE_CHECK_ENABLED")?.apply {
             isChecked = UserPreferences.updateCheckEnabled
-            setOnPreferenceChangeListener { _, newValue ->
+            setOnPreferenceChangeListener { preference, newValue ->
                 UserPreferences.updateCheckEnabled = newValue as Boolean
-                true
+                (preference as SwitchPreference).isChecked = newValue
+                false
             }
         }
 
@@ -804,10 +811,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         }
 
         findPreference<Preference>("preferred_player_reset")?.setOnPreferenceClickListener {
-            PreferenceManager.getDefaultSharedPreferences(requireContext())
-                .edit()
-                .remove("preferred_smarttube_package")
-                .apply()
+            UserPreferences.removeProfilePreference("preferred_smarttube_package")
             Toast.makeText(requireContext(), R.string.settings_trailer_player_reset, Toast.LENGTH_SHORT).show()
             true
         }
@@ -886,6 +890,22 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
 
         findPreference<Preference>("key_backup_import_db_tv")?.setOnPreferenceClickListener {
             showDatabaseBackupImportOptions()
+            true
+        }
+
+        findPreference<Preference>("key_profile_edit")?.setOnPreferenceClickListener {
+            val active = ProfileManager.activeProfile
+            if (active != null) showRenameProfileDialogTv(active)
+            true
+        }
+
+        findPreference<Preference>("key_profile_manage")?.setOnPreferenceClickListener {
+            showProfileManagementDialogTv()
+            true
+        }
+
+        findPreference<Preference>("key_profile_add")?.setOnPreferenceClickListener {
+            showCreateProfileDialogTv()
             true
         }
     }
@@ -1471,6 +1491,9 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         findPreference<PreferenceCategory>("pc_provider_empty_state")?.title = providerName?.let {
             getString(R.string.settings_provider_connection_category_title, it)
         } ?: getString(R.string.settings_provider_connection_title)
+
+        findPreference<Preference>("key_profile_edit")?.summary =
+            ProfileManager.activeProfile?.name ?: getString(R.string.profile_edit_btn)
     }
 
     private fun updateProviderVisibilityState() {
@@ -1546,14 +1569,20 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
         }
 
         removePinPreference?.setOnPreferenceClickListener {
-            changeParentalSettingWithPinCheck {
-                UserPreferences.parentalControlPin = ""
-                UserPreferences.parentalControlMaxAge = null
-                maxAgePreference?.value = ""
-                UserPreferences.unlockParentalControls()
-                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
-                ProviderChangeNotifier.notifyProviderChanged()
-                updateParentalControlPreferenceState()
+            val removePin = {
+                if (UserPreferences.saveParentalControlPin("")) {
+                    UserPreferences.parentalControlMaxAge = null
+                    maxAgePreference?.value = ""
+                    UserPreferences.unlockParentalControls()
+                    Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
+                    ProviderChangeNotifier.notifyProviderChanged()
+                    updateParentalControlPreferenceState()
+                }
+            }
+            if (UserPreferences.parentalControlAdminPin.isNotBlank()) {
+                changeAdminSettingWithPinCheck(removePin)
+            } else {
+                changeParentalSettingWithPinCheck(removePin)
             }
             true
         }
@@ -1616,7 +1645,6 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
 
         pinPreference?.apply {
             isEnabled = tmdbEnabled && !isLocked
-            text = ""
             summary = when {
                 !tmdbEnabled -> getString(R.string.settings_parental_requires_tmdb)
                 UserPreferences.parentalControlHardLocked -> getString(R.string.settings_parental_locked_hard)
@@ -1631,7 +1659,6 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
 
         adminPinPreference?.apply {
             isEnabled = tmdbEnabled
-            text = ""
             summary = when {
                 !tmdbEnabled -> getString(R.string.settings_parental_requires_tmdb)
                 UserPreferences.parentalControlAdminPin.isBlank() -> getString(R.string.settings_parental_admin_pin_not_set)
@@ -1769,7 +1796,7 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
             return
         }
 
-        changeParentalSettingWithPinCheck {
+        val showEditor = {
             promptForPinValue(
                 titleRes = R.string.settings_parental_pin_title,
                 messageRes = if (UserPreferences.parentalControlPin.isBlank()) {
@@ -1781,26 +1808,33 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
                 onSubmit = { newPin ->
                     when {
                         newPin.isBlank() -> {
-                            UserPreferences.parentalControlPin = ""
-                            UserPreferences.parentalControlMaxAge = null
-                            maxAgePreference?.value = ""
-                            UserPreferences.unlockParentalControls()
-                            Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
-                            ProviderChangeNotifier.notifyProviderChanged()
-                            updateParentalControlPreferenceState()
+                            if (UserPreferences.saveParentalControlPin("")) {
+                                UserPreferences.parentalControlMaxAge = null
+                                maxAgePreference?.value = ""
+                                UserPreferences.unlockParentalControls()
+                                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_removed), Toast.LENGTH_SHORT).show()
+                                ProviderChangeNotifier.notifyProviderChanged()
+                                updateParentalControlPreferenceState()
+                            }
                             null
                         }
                         newPin.length < 4 -> getString(R.string.settings_parental_pin_too_short)
                         else -> {
-                            UserPreferences.parentalControlPin = newPin
-                            Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_saved), Toast.LENGTH_SHORT).show()
-                            ProviderChangeNotifier.notifyProviderChanged()
-                            updateParentalControlPreferenceState()
+                            if (UserPreferences.saveParentalControlPin(newPin)) {
+                                Toast.makeText(requireContext(), getString(R.string.settings_parental_pin_saved), Toast.LENGTH_SHORT).show()
+                                ProviderChangeNotifier.notifyProviderChanged()
+                                updateParentalControlPreferenceState()
+                            }
                             null
                         }
                     }
                 }
             )
+        }
+        if (UserPreferences.parentalControlAdminPin.isNotBlank()) {
+            changeAdminSettingWithPinCheck(showEditor)
+        } else {
+            changeParentalSettingWithPinCheck(showEditor)
         }
     }
 
@@ -2091,5 +2125,151 @@ class SettingsTvFragment : LeanbackPreferenceFragmentCompat() {
             .show()
 
         dialog.window?.setLayout(dialogWidth, LinearLayout.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun showCreateProfileDialogTv() {
+        val input = EditText(requireContext()).apply {
+            hint = getString(R.string.profile_name_hint)
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_create_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotBlank()) {
+                    lifecycleScope.launch {
+                        ProfileManager.createProfile(name)
+                        Toast.makeText(requireContext(), R.string.profile_created, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showRenameProfileDialogTv(profile: Profile) {
+        val input = EditText(requireContext()).apply {
+            setText(profile.name)
+            hint = getString(R.string.profile_name_hint)
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_rename_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotBlank()) {
+                    lifecycleScope.launch {
+                        ProfileManager.renameProfile(profile.id, newName)
+                        Toast.makeText(requireContext(), R.string.profile_renamed, Toast.LENGTH_SHORT).show()
+                        updateOverviewLabels()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showProfileManagementDialogTv() {
+        lifecycleScope.launch {
+            val profiles = ProfileManager.getAllProfiles()
+            val names = profiles.map { it.name }.toTypedArray()
+            AlertDialog.Builder(requireContext())
+                .setTitle(R.string.profile_manage_title)
+                .setItems(names) { _, which ->
+                    if (which < profiles.size) {
+                        showProfileActionsDialogTv(profiles[which], profiles.size)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun showProfileActionsDialogTv(profile: Profile, profileCount: Int = 1) {
+        val items = mutableListOf<String>().apply {
+            add(getString(R.string.profile_action_switch))
+            add(getString(R.string.profile_action_rename))
+            add(getString(R.string.profile_action_color))
+            if (profileCount > 1) {
+                add(getString(R.string.profile_action_delete))
+            }
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(profile.name)
+            .setItems(items.toTypedArray()) { _, which ->
+                when (items[which]) {
+                    getString(R.string.profile_action_switch) -> {
+                        if (profile.id == ProfileManager.activeProfileId) {
+                            switchProfileFromSettings(profile)
+                        } else {
+                            ProfileSwitchPinGuard.verifyCurrentProfile(requireContext()) {
+                                switchProfileFromSettings(profile)
+                            }
+                        }
+                    }
+                    getString(R.string.profile_action_rename) -> showRenameProfileDialogTv(profile)
+                    getString(R.string.profile_action_color) -> showProfileColorDialogTv(profile)
+                    getString(R.string.profile_action_delete) -> showDeleteProfileDialogTv(profile)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun switchProfileFromSettings(profile: Profile) {
+        if (!isAdded) return
+        val oldProfileId = ProfileManager.activeProfileId
+        val oldLang = oldProfileId?.let { AppLanguageManager.getProfileLanguage(requireContext(), it) }
+        val oldTheme = UserPreferences.selectedTheme
+        lifecycleScope.launch {
+            ProfileManager.switchToProfile(profile.id)
+            val newLang = AppLanguageManager.getProfileLanguage(requireContext(), profile.id)
+            val newTheme = UserPreferences.selectedTheme
+            if (newLang != (oldLang ?: AppLanguageManager.SYSTEM_LANGUAGE) || newTheme != oldTheme) {
+                requireActivity().apply {
+                    finish()
+                    startActivity(Intent(this, this::class.java))
+                }
+            } else {
+                (requireActivity() as? MainTvActivity)?.recreateProviderHome()
+            }
+        }
+    }
+
+    private fun showDeleteProfileDialogTv(profile: Profile) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.profile_delete_title)
+            .setMessage(getString(R.string.profile_delete_message, profile.name))
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                lifecycleScope.launch {
+                    val success = ProfileManager.deleteProfile(profile.id)
+                    if (success) {
+                        Toast.makeText(requireContext(), R.string.profile_deleted, Toast.LENGTH_SHORT).show()
+                        if (ProfileManager.activeProfile?.id == profile.id) {
+                            requireActivity().apply {
+                                finish()
+                                startActivity(Intent(this, this::class.java))
+                            }
+                        }
+                    } else {
+                        Toast.makeText(requireContext(), R.string.profile_delete_error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showProfileColorDialogTv(profile: Profile) {
+        ProfileColorPicker.show(requireContext(), profile.avatarColor) { color ->
+            lifecycleScope.launch {
+                if (ProfileManager.setProfileColor(profile.id, color)) {
+                    Toast.makeText(requireContext(), R.string.profile_color_changed, Toast.LENGTH_SHORT).show()
+                    if (profile.id == ProfileManager.activeProfileId) requireActivity().recreate()
+                }
+            }
+        }
     }
 }

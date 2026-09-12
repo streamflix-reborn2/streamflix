@@ -26,6 +26,7 @@
     <string name="providers_choose_title">Choisir un fournisseur</string>
 
     <string name="main_menu_change_provider">Changer de fournisseur</string>
+    <string name="main_menu_change_profile">Changer de profil</string>
     <string name="main_menu_search">Rechercher</string>
     <string name="main_menu_home">Accueil</string>
     <string name="main_menu_movies">Films</string>
@@ -383,9 +384,9 @@
     <string name="player_manual_zoom_hint">Utilisez HAUT/BAS per zoom vertical, GAUCHE/DROITE pour horizontal, RETOUR pour quitter</string>
 
     <string name="bypass_tv_instructions">DÉPLACEZ LE CURSEUR SUR LA CASE\nET APPUYEZ SUR OK POUR DÉBLOQUER</string>
-    <string name="bypass_status_complete_bypass_first">Termine d’abord le contournement.</string>
+    <string name="bypass_status_complete_bypass_first">Termine d\'abord le contournement.</string>
     <string name="bypass_status_missing_url">URL de contournement manquante.</string>
-    <string name="bypass_status_external_redirect_blocked">Redirection externe bloquée. Termine d’abord la vérification.</string>
+    <string name="bypass_status_external_redirect_blocked">Redirection externe bloquée. Termine d\'abord la vérification.</string>
     <string name="bypass_status_completed_continue">Contournement terminé. Appuie sur Continue pour continuer.</string>
     <string name="bypass_status_cookies_detected">Cookies de vérification détectés. Si la page semble validée, appuie sur Continue.</string>
     <string name="bypass_status_complete_in_page">Termine les captchas, appuie sur Weiter dans la fenêtre, puis sur le bouton en bas.</string>
@@ -505,6 +506,36 @@
     <string name="settings_refresh_cache_confirm">Actualiser le cache ?</string>
     <string name="settings_refresh_cache_message">Cela rechargera l\'historique de visionnage et les données de l\'application depuis la base de données.</string>
     <string name="settings_refresh_cache_success">Cache actualisé avec succès</string>
+    <string name="profile_who_is_watching">Qui regarde ?</string>
+    <string name="profile_no_profiles">Aucun profil pour l\'instant</string>
+    <string name="profile_default_name">Par défaut</string>
+    <string name="profile_current">Profil actuel</string>
+    <string name="profile_add_btn">Ajouter un profil</string>
+    <string name="profile_manage_btn">Gérer</string>
+    <string name="profile_edit_btn">Modifier le profil</string>
+    <string name="profile_manage_title">Gérer les profils</string>
+    <string name="profile_create_title">Nouveau profil</string>
+    <string name="profile_rename_title">Renommer le profil</string>
+    <string name="profile_delete_title">Supprimer le profil</string>
+    <string name="profile_delete_message">Êtes-vous sûr de vouloir supprimer "%s" ?</string>
+    <string name="profile_name_hint">Nom du profil</string>
+    <string name="profile_action_switch">Passer à ce profil</string>
+    <string name="profile_switch_pin_title">Saisir le code PIN du profil</string>
+    <string name="profile_switch_pin_message">Saisissez le code PIN parental du profil actuel pour changer de profil.</string>
+    <string name="profile_action_rename">Renommer</string>
+    <string name="profile_action_delete">Supprimer</string>
+    <string name="profile_created">Profil créé</string>
+    <string name="profile_renamed">Profil renommé</string>
+    <string name="profile_deleted">Profil supprimé</string>
+    <string name="profile_delete_error">Impossible de supprimer le profil</string>
+    <string name="profile_delete_default_error">Impossible de supprimer le profil par défaut</string>
+    <string name="profile_import_warning_title">Importation inter-profils</string>
+    <string name="profile_import_warning_message">Ces données ont été exportées du profil "%1$s". Elles seront importées dans le profil actuel "%2$s". Les données du profil actuel seront écrasées. Continuer ?</string>
+    <string name="settings_screen_profiles_title">Profils</string>
+    <string name="settings_screen_profiles_summary">Gérer les profils utilisateur et leurs données</string>
+    <string name="settings_profile_edit_summary">Renommer le profil actuel</string>
+    <string name="settings_profile_manage_summary">Voir, renommer ou supprimer des profils</string>
+    <string name="settings_profile_add_summary">Créer un nouveau profil</string>
     <string name="supabase_instructions_title">Instructions</string>
     <string name="supabase_instructions_summary">Ouvrir dans le navigateur le guide détaillé de configuration du compte et de la synchronisation Supabase</string>
 </resources>

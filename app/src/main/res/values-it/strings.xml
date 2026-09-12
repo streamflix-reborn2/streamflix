@@ -28,6 +28,7 @@
     <string name="providers_choose_title">Scegli un provider</string>
 
     <string name="main_menu_change_provider">Cambia provider</string>
+    <string name="main_menu_change_profile">Cambia profilo</string>
     <string name="main_menu_search">Cerca</string>
     <string name="main_menu_home">Home</string>
     <string name="main_menu_movies">Film</string>
@@ -380,7 +381,7 @@
     
     <string name="settings_force_extra_buffer_title">Extra Buffering Globale</string>
     <string name="settings_force_extra_buffer_summary">Abilita l\'extra buffering per tutti i server per impostazione predefinita</string>
-    <string name="settings_enable_tmdb_summary">Abilita o disabilita l’utilizzo di TMDB</string>
+    <string name="settings_enable_tmdb_summary">Abilita o disabilita l\'utilizzo di TMDB</string>
     <string name="settings_enable_tmdb_title">Abilita TMDB</string>
     <string name="settings_enable_tmdb_enabled">TMDB abilitato</string>
     <string name="settings_enable_tmdb_disabled">TMDB disabilitato</string>
@@ -503,6 +504,36 @@
     <string name="settings_refresh_cache_confirm">Aggiornare la cache?</string>
     <string name="settings_refresh_cache_message">Questo ricaricherà la cronologia visione e i dati dell\'app dal database.</string>
     <string name="settings_refresh_cache_success">Cache aggiornata con successo</string>
+    <string name="profile_who_is_watching">Chi sta guardando?</string>
+    <string name="profile_no_profiles">Nessun profilo ancora</string>
+    <string name="profile_default_name">Predefinito</string>
+    <string name="profile_current">Profilo attuale</string>
+    <string name="profile_add_btn">Aggiungi Profilo</string>
+    <string name="profile_manage_btn">Gestisci</string>
+    <string name="profile_edit_btn">Modifica Profilo</string>
+    <string name="profile_manage_title">Gestisci Profili</string>
+    <string name="profile_create_title">Nuovo Profilo</string>
+    <string name="profile_rename_title">Rinomina Profilo</string>
+    <string name="profile_delete_title">Elimina Profilo</string>
+    <string name="profile_delete_message">Sei sicuro di voler eliminare "%s"?</string>
+    <string name="profile_name_hint">Nome profilo</string>
+    <string name="profile_action_switch">Passa a questo profilo</string>
+    <string name="profile_switch_pin_title">Inserisci il PIN del profilo</string>
+    <string name="profile_switch_pin_message">Inserisci il PIN genitore del profilo attuale per cambiare profilo.</string>
+    <string name="profile_action_rename">Rinomina</string>
+    <string name="profile_action_delete">Elimina</string>
+    <string name="profile_created">Profilo creato</string>
+    <string name="profile_renamed">Profilo rinominato</string>
+    <string name="profile_deleted">Profilo eliminato</string>
+    <string name="profile_delete_error">Impossibile eliminare il profilo</string>
+    <string name="profile_delete_default_error">Impossibile eliminare il profilo predefinito</string>
+    <string name="profile_import_warning_title">Importazione tra Profili</string>
+    <string name="profile_import_warning_message">Questi dati sono stati esportati dal profilo "%1$s". Verranno importati nel profilo corrente "%2$s". I dati del profilo corrente verranno sovrascritti. Continuare?</string>
+    <string name="settings_screen_profiles_title">Profili</string>
+    <string name="settings_screen_profiles_summary">Gestisci profili utente e i loro dati</string>
+    <string name="settings_profile_edit_summary">Rinomina il profilo corrente</string>
+    <string name="settings_profile_manage_summary">Visualizza, rinomina o elimina profili</string>
+    <string name="settings_profile_add_summary">Crea un nuovo profilo</string>
     <string name="supabase_instructions_title">Istruzioni</string>
     <string name="supabase_instructions_summary">Apri nel browser la guida dettagliata per configurare account e sincronizzazione Supabase</string>
 </resources>
